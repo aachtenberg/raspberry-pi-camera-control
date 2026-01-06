@@ -825,8 +825,6 @@ def stop_camera_process():
 def start_stream():
     """This function is now just for updating settings"""
     logger.info(f"Settings updated: {settings['width']}x{settings['height']} @ {settings['framerate']}fps")
-    # Stop current camera to apply new settings
-    stop_camera_process()
     # Save settings whenever they change
     save_settings()
 
@@ -1130,6 +1128,8 @@ def serve_snapshot(filename):
 
 @app.route('/apply', methods=['POST'])
 def apply_settings():
+    global camera_running
+
     new_settings = request.json
     width = new_settings.get('width', settings['width'])
     height = new_settings.get('height', settings['height'])
@@ -1141,6 +1141,11 @@ def apply_settings():
     new_settings['width'] = validated_res['width']
     new_settings['height'] = validated_res['height']
     settings.update(new_settings)
+
+    # Stop current camera and reset flag so new stream can start with new settings
+    stop_camera_process()
+    with camera_process_lock:
+        camera_running = False
 
     threading.Thread(target=start_stream, daemon=True).start()
 

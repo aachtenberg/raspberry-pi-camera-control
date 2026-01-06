@@ -661,6 +661,7 @@
     <script>
         let isPlaying = true;
         let settingsOpen = false;
+        let isLoadingSettings = false;  // Flag to prevent applying settings during page load
 
         // Load system info on page load
         window.onload = function() {
@@ -750,7 +751,12 @@
                     valueEl.textContent = value;
                 }
             }
-            
+
+            // Don't apply settings if we're just loading them from the server
+            if (isLoadingSettings) {
+                return;
+            }
+
             // Apply setting immediately
             const settingMap = {
                 'gain': 'gain',
@@ -940,6 +946,7 @@
         }
 
         function loadSettings() {
+            isLoadingSettings = true;  // Set flag to prevent applying settings during load
             fetch('/settings')
                 .then(r => r.json())
                 .then(settings => {
@@ -973,6 +980,8 @@
                     updateSlider('contrast', settings.contrast || 0);
                     updateSlider('saturation', settings.saturation || 0);
                     updateSlider('brightness', settings.brightness || 0);
+
+                    isLoadingSettings = false;  // Reset flag after loading
                 });
         }
 
