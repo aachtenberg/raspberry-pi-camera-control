@@ -881,10 +881,8 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(settings)
                 }).then(() => {
-                    // Wait for camera to restart before reloading feed
-                    setTimeout(() => {
-                        reloadStream();
-                    }, 800);
+                    // Settings applied - no need to reload stream
+                    // Camera updates settings without restarting
                 });
             }, 800);
         }
@@ -909,10 +907,8 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(settings)
                 }).then(() => {
-                    // Wait for camera to restart before reloading feed
-                    setTimeout(() => {
-                        reloadStream();
-                    }, 800);
+                    // Settings applied - no need to reload stream
+                    // Camera updates settings without restarting
                 });
             }, 300);  // Shorter delay for dropdowns
         }
@@ -988,10 +984,6 @@
                 updateSlider('brightness', 0);
 
                 showNotification('Daytime Preset Applied - HDR enabled', 'success');
-                // Wait for camera to restart before reloading feed
-                setTimeout(() => {
-                    reloadStream();
-                }, 800);
             });
         }
 
@@ -1017,10 +1009,6 @@
                 updateSlider('contrast', 0.5);
 
                 showNotification('Dark Mode Preset Applied', 'success');
-                // Wait for camera to restart before reloading feed
-                setTimeout(() => {
-                    reloadStream();
-                }, 800);
             });
         }
 
