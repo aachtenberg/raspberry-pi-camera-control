@@ -828,8 +828,10 @@ def generate_frames():
                 '--saturation', str(settings['saturation']),
                 '--sharpness', str(settings['sharpness']),
                 '--exposure', settings['exposure'],
+                '--metering', settings['metering'],
                 '--awb', settings['awb'],
                 '--rotation', str(settings['rotation']),
+                '--quality', str(stream_quality),
                 '-o', '-'  # Output to stdout
             ]
 
