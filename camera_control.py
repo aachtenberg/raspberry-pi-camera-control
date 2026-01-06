@@ -26,7 +26,7 @@ current_camera_process = None
 camera_process_lock = threading.Lock()
 camera_frame_buffer = []  # Shared frame buffer for all clients
 camera_running = False
-use_hw_acceleration = False  # Use H.264 hardware encoding by default (disabled for now)
+use_hw_acceleration = True  # Use H.264 hardware encoding
 
 # Directories
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'camera_settings.json')
@@ -828,20 +828,27 @@ def start_h264_camera():
     """Start H.264 hardware-accelerated camera with HLS output"""
     global current_camera_process, camera_running
 
-    # Clean up old HLS segments
-    for file in os.listdir(HLS_DIR):
-        if file.endswith(('.ts', '.m3u8')):
-            try:
-                os.remove(os.path.join(HLS_DIR, file))
-            except:
-                pass
+    # Create HLS directory if it doesn't exist
+    os.makedirs(HLS_DIR, exist_ok=True)
+    logger.info(f"HLS directory: {HLS_DIR}")
 
+    # Clean up old HLS segments
+    try:
+        for file in os.listdir(HLS_DIR):
+            if file.endswith(('.ts', '.m3u8')):
+                try:
+                    os.remove(os.path.join(HLS_DIR, file))
+                    logger.info(f"Removed old HLS file: {file}")
+                except Exception as e:
+                    logger.warning(f"Could not remove {file}: {e}")
+    except Exception as e:
+        logger.error(f"Error cleaning HLS directory: {e}")
+
+    # Use simpler H.264 encoding without libav complications
     cmd = [
         'rpicam-vid',
-        '--codec', 'libav',  # H.264 hardware encoder
-        '--libav-format', 'hls',  # HLS output format
-        '--libav-audio', '0',  # No audio
-        '--libav-video-codec', 'h264_v4l2m2m',  # Hardware H.264 encoder
+        '--nopreview',
+        '--codec', 'h264',  # H.264 hardware encoder
         '--width', str(settings['width']),
         '--height', str(settings['height']),
         '--framerate', str(settings['framerate']),
@@ -854,8 +861,9 @@ def start_h264_camera():
         '--metering', settings['metering'],
         '--awb', settings['awb'],
         '--rotation', str(settings['rotation']),
-        '--inline-headers',  # Include headers in stream
-        '-o', os.path.join(HLS_DIR, 'stream.m3u8')
+        '--inline',  # Inline headers for streaming
+        '--listen',  # Enable TCP server mode
+        '-o', 'tcp://0.0.0.0:8888'
     ]
 
     # Add advanced settings
@@ -875,19 +883,30 @@ def start_h264_camera():
     if settings['vflip']:
         cmd.append('--vflip')
 
+    # Log file for debugging
+    log_file = os.path.join(os.path.dirname(__file__), 'h264_camera.log')
+
     try:
         logger.info(f"Starting H.264 camera with command: {' '.join(cmd)}")
+        
+        # Open log file for stderr
+        stderr_file = open(log_file, 'w')
+        
+        # CRITICAL: Use devnull for stdout and file for stderr to prevent zombie process
         process = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_file,
+            start_new_session=True  # Detach from parent process
         )
 
         # Wait a moment and check if process is still running
-        time.sleep(0.5)
+        time.sleep(1)
         if process.poll() is not None:
             # Process exited, read stderr
-            stderr = process.stderr.read().decode('utf-8', errors='ignore')
+            stderr_file.close()
+            with open(log_file, 'r') as f:
+                stderr = f.read()
             logger.error(f"H.264 camera process exited immediately. Error: {stderr}")
             return False
 
@@ -896,10 +915,56 @@ def start_h264_camera():
             camera_running = True
 
         logger.info("H.264 hardware-accelerated camera started successfully")
+        logger.info("H.264 stream available at tcp://0.0.0.0:8888")
+        
+        # Start ffmpeg process to convert H.264 to HLS
+        threading.Thread(target=run_ffmpeg_hls_converter, daemon=True).start()
+        
         return True
     except Exception as e:
         logger.error(f"Failed to start H.264 camera: {e}")
         return False
+
+def run_ffmpeg_hls_converter():
+    """Convert H.264 TCP stream to HLS segments using ffmpeg"""
+    try:
+        # Wait for camera to start
+        time.sleep(2)
+        
+        playlist_path = os.path.join(HLS_DIR, 'stream.m3u8')
+        segment_pattern = os.path.join(HLS_DIR, 'segment_%03d.ts')
+        
+        cmd = [
+            'ffmpeg',
+            '-i', 'tcp://127.0.0.1:8888',
+            '-c:v', 'copy',  # Copy video without re-encoding
+            '-f', 'hls',
+            '-hls_time', '2',  # 2 second segments
+            '-hls_list_size', '10',  # Keep last 10 segments
+            '-hls_flags', 'delete_segments+append_list',
+            '-hls_segment_filename', segment_pattern,
+            playlist_path
+        ]
+        
+        logger.info(f"Starting ffmpeg HLS converter: {' '.join(cmd)}")
+        
+        # Run ffmpeg
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        
+        # Monitor process
+        while True:
+            if process.poll() is not None:
+                logger.error("ffmpeg HLS converter exited")
+                break
+            time.sleep(5)
+            
+    except Exception as e:
+        logger.error(f"ffmpeg HLS converter error: {e}")
 
 def start_stream():
     """This function is now just for updating settings"""

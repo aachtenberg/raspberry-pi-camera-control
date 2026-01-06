@@ -3,6 +3,8 @@
 <head>
     <title>Garage Cam</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- HLS.js for H.264 streaming -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -82,6 +84,9 @@
             width: 100%;
             height: 100%;
             object-fit: contain;
+        }
+        video#stream {
+            background: #000;
         }
         .timestamp {
             position: absolute;
@@ -411,7 +416,7 @@
     <!-- Main Video Area -->
     <div class="video-container">
         <div class="timestamp" id="timestamp"></div>
-        <img id="stream" src="/video_feed" alt="Camera feed">
+        <video id="stream" autoplay muted playsinline></video>
     </div>
 
     <!-- Bottom Controls -->
@@ -664,15 +669,71 @@
         let settingsOpen = false;
         let isLoadingSettings = false;  // Flag to prevent applying settings during page load
         let settingsDebounceTimer = null;  // Timer for debouncing setting changes
+        let hls = null;  // HLS.js instance
 
-        // Reload MJPEG stream
+        // Initialize HLS video stream
+        function initHLSStream() {
+            const video = document.getElementById('stream');
+            const hlsUrl = '/hls/stream.m3u8';
+            
+            if (Hls.isSupported()) {
+                hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 10,
+                    maxBufferLength: 20,
+                    maxMaxBufferLength: 30
+                });
+                
+                hls.loadSource(hlsUrl);
+                hls.attachMedia(video);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    video.play().catch(e => {
+                        console.log('Autoplay failed, user interaction required');
+                    });
+                });
+                
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch(data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.log('Network error, trying to recover...');
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.log('Media error, trying to recover...');
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                console.log('Fatal error, destroying player');
+                                hls.destroy();
+                                // Try to reinitialize after 3 seconds
+                                setTimeout(initHLSStream, 3000);
+                                break;
+                        }
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native HLS support (Safari, iOS)
+                video.src = hlsUrl;
+                video.addEventListener('loadedmetadata', function() {
+                    video.play();
+                });
+            }
+        }
+
+        // Reload stream
         function reloadStream() {
-            const img = document.getElementById('stream');
-            img.src = '/video_feed?' + new Date().getTime();
+            if (hls) {
+                hls.destroy();
+            }
+            setTimeout(initHLSStream, 500);
         }
 
         // Load system info on page load
         window.onload = function() {
+            initHLSStream();  // Initialize HLS stream
             loadSystemInfo();
             updateTimestamp();
             setInterval(updateTimestamp, 1000);
@@ -713,13 +774,13 @@
         function togglePlayPause() {
             isPlaying = !isPlaying;
             const btn = document.getElementById('play-pause-btn');
-            const stream = document.getElementById('stream');
+            const video = document.getElementById('stream');
             if (isPlaying) {
                 btn.textContent = '⏸';
-                stream.src = '/video_feed?' + new Date().getTime();
+                video.play();
             } else {
                 btn.textContent = '▶';
-                stream.src = '';
+                video.pause();
             }
         }
 
