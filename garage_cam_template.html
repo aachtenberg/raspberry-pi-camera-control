@@ -459,7 +459,8 @@
             </div>
 
             <!-- Presets -->
-            <button class="preset-btn" onclick="applyDarkModePreset()">Dark Mode Preset</button>
+            <button class="preset-btn" onclick="applyDaytimePreset()" style="background: #FFC107;">Daytime Preset</button>
+            <button class="preset-btn" onclick="applyDarkModePreset()" style="margin-top: 10px;">Dark Mode Preset</button>
             <button class="preset-btn" onclick="applyPerformancePreset()" style="background: #FF9800; margin-top: 10px;">Performance Mode</button>
 
             <!-- DARK ROOM TUNING -->
@@ -872,6 +873,49 @@
                         link.click();
                     }
                 });
+        }
+
+        function applyDaytimePreset() {
+            // Apply daytime optimized settings with HDR
+            const presetSettings = {
+                gain: 0,           // Auto gain (plenty of light)
+                shutter: 0,        // Auto shutter (fast for bright conditions)
+                contrast: 1.2,     // Slightly higher for vibrant colors
+                saturation: 1.2,   // Slightly higher for vivid daytime colors
+                brightness: 0,     // Normal brightness
+                hdr: 'auto',       // HDR on for better dynamic range
+                exposure: 'normal',
+                denoise: 'auto'    // Auto denoise
+            };
+
+            fetch('/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(presetSettings)
+            }).then(() => {
+                // Update UI controls
+                document.getElementById('gain').value = 0;
+                document.getElementById('shutter').value = 0;
+                document.getElementById('contrast').value = 1.2;
+                document.getElementById('saturation').value = 1.2;
+                document.getElementById('brightness').value = 0;
+                document.getElementById('hdr').value = 'auto';
+                document.getElementById('exposure').value = 'normal';
+                document.getElementById('denoise').value = 'auto';
+
+                updateSlider('gain', 0);
+                updateSlider('shutter', 0);
+                updateSlider('contrast', 1.2);
+                updateSlider('saturation', 1.2);
+                updateSlider('brightness', 0);
+
+                showNotification('Daytime Preset Applied - HDR enabled', 'success');
+                // Wait for camera to restart before reloading feed
+                setTimeout(() => {
+                    const img = document.getElementById('stream');
+                    img.src = '/video_feed?' + new Date().getTime();
+                }, 500);
+            });
         }
 
         function applyDarkModePreset() {
