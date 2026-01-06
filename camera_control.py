@@ -841,6 +841,7 @@ def start_h264_camera():
         '--codec', 'libav',  # H.264 hardware encoder
         '--libav-format', 'hls',  # HLS output format
         '--libav-audio', '0',  # No audio
+        '--libav-video-codec', 'h264_v4l2m2m',  # Hardware H.264 encoder
         '--width', str(settings['width']),
         '--height', str(settings['height']),
         '--framerate', str(settings['framerate']),
@@ -853,9 +854,8 @@ def start_h264_camera():
         '--metering', settings['metering'],
         '--awb', settings['awb'],
         '--rotation', str(settings['rotation']),
-        '-o', os.path.join(HLS_DIR, 'stream.m3u8'),
         '--inline-headers',  # Include headers in stream
-        '--segment', '1'  # 1 second segments
+        '-o', os.path.join(HLS_DIR, 'stream.m3u8')
     ]
 
     # Add advanced settings
@@ -876,17 +876,26 @@ def start_h264_camera():
         cmd.append('--vflip')
 
     try:
+        logger.info(f"Starting H.264 camera with command: {' '.join(cmd)}")
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
 
+        # Wait a moment and check if process is still running
+        time.sleep(0.5)
+        if process.poll() is not None:
+            # Process exited, read stderr
+            stderr = process.stderr.read().decode('utf-8', errors='ignore')
+            logger.error(f"H.264 camera process exited immediately. Error: {stderr}")
+            return False
+
         with camera_process_lock:
             current_camera_process = process
             camera_running = True
 
-        logger.info("H.264 hardware-accelerated camera started")
+        logger.info("H.264 hardware-accelerated camera started successfully")
         return True
     except Exception as e:
         logger.error(f"Failed to start H.264 camera: {e}")
