@@ -458,8 +458,9 @@
                 </div>
             </div>
 
-            <!-- Dark Mode Preset -->
+            <!-- Presets -->
             <button class="preset-btn" onclick="applyDarkModePreset()">Dark Mode Preset</button>
+            <button class="preset-btn" onclick="applyPerformancePreset()" style="background: #FF9800; margin-top: 10px;">Performance Mode</button>
 
             <!-- DARK ROOM TUNING -->
             <div class="settings-section">
@@ -857,7 +858,7 @@
                 shutter: 200000,  // 200ms in microseconds
                 contrast: 0.5
             };
-            
+
             fetch('/apply', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -872,6 +873,40 @@
                 updateSlider('contrast', 0.5);
 
                 showNotification('Dark Mode Preset Applied', 'success');
+                // Wait for camera to restart before reloading feed
+                setTimeout(() => {
+                    const img = document.getElementById('stream');
+                    img.src = '/video_feed?' + new Date().getTime();
+                }, 500);
+            });
+        }
+
+        function applyPerformancePreset() {
+            // Apply CPU-efficient settings for low resource usage
+            const presetSettings = {
+                width: 640,
+                height: 480,
+                framerate: 10,
+                quality: 40,
+                denoise: 'off',  // Disable denoise to save CPU
+                hdr: 'off'       // Disable HDR to save CPU
+            };
+
+            fetch('/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(presetSettings)
+            }).then(() => {
+                // Update UI controls
+                document.getElementById('resolution').value = '640x480';
+                document.getElementById('framerate').value = 10;
+                document.getElementById('quality').value = 40;
+                document.getElementById('denoise').value = 'off';
+                document.getElementById('hdr').value = 'off';
+                updateSlider('framerate', 10);
+                updateSlider('quality', 40);
+
+                showNotification('Performance Mode Applied - Lower CPU usage', 'success');
                 // Wait for camera to restart before reloading feed
                 setTimeout(() => {
                     const img = document.getElementById('stream');

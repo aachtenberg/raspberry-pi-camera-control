@@ -831,7 +831,7 @@ def start_stream():
 def generate_frames():
     """Capture frames using optimized method - try rpicam-vid first, fallback to rpicam-still"""
     # Use lower quality for streaming to improve performance
-    stream_quality = min(settings['quality'], 70)  # Cap at 70 for streaming performance
+    stream_quality = min(settings['quality'], 50)  # Cap at 50 for better CPU efficiency
 
     last_restart_time = time.time()
 
