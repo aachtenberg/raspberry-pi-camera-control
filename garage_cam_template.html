@@ -1022,11 +1022,12 @@
 
         function takeSnapshot() {
             const snapshotBtn = event.target.closest('button');
-            const originalText = snapshotBtn.innerText;
+            const originalOpacity = snapshotBtn.style.opacity;
             
-            // Disable button and show feedback
+            // Visual feedback: reduce opacity during capture
             snapshotBtn.disabled = true;
-            snapshotBtn.innerText = 'Taking photo...';
+            snapshotBtn.style.opacity = '0.6';
+            snapshotBtn.title = 'Taking photo...';
             
             console.log('Snapshot: Sending POST request...');
             
@@ -1037,8 +1038,9 @@
                 })
                 .then(data => {
                     console.log('Snapshot: Response data:', data);
-                    snapshotBtn.innerText = originalText;
+                    snapshotBtn.style.opacity = originalOpacity || '1';
                     snapshotBtn.disabled = false;
+                    snapshotBtn.title = 'Take Picture';
                     
                     if (data.success) {
                         console.log('Snapshot: Success! Downloading:', data.filename);
@@ -1058,8 +1060,9 @@
                 })
                 .catch(error => {
                     console.error('Snapshot: Fetch error -', error);
-                    snapshotBtn.innerText = originalText;
+                    snapshotBtn.style.opacity = originalOpacity || '1';
                     snapshotBtn.disabled = false;
+                    snapshotBtn.title = 'Take Picture';
                     showNotification('Snapshot error: ' + error, 'error');
                 });
         }
