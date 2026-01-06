@@ -1170,31 +1170,54 @@
 
         function rebootDevice() {
             if (confirm('Restart the camera service? The stream will be temporarily unavailable.')) {
-                const btn = event.target;
-                btn.disabled = true;
-                btn.textContent = 'Restarting...';
+                // Show full-screen reboot overlay
+                const overlay = document.createElement('div');
+                overlay.id = 'reboot-overlay';
+                overlay.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.95);
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    z-index: 10000;
+                `;
                 
+                const message = document.createElement('div');
+                message.style.cssText = `
+                    color: #fff;
+                    font-size: 32px;
+                    font-weight: bold;
+                    text-align: center;
+                    text-transform: uppercase;
+                    letter-spacing: 2px;
+                `;
+                message.textContent = 'Rebooting...';
+                
+                overlay.appendChild(message);
+                document.body.appendChild(overlay);
+                
+                // Send restart request
                 fetch('/restart_service', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'}
                 }).then(response => response.json()).then(data => {
                     if (data.status === 'ok') {
-                        showNotification('Camera service restarting...', 'success');
+                        message.textContent = 'Rebooting... Please wait';
                         // Wait for service to restart
                         setTimeout(() => {
-                            btn.disabled = false;
-                            btn.textContent = 'Reboot Device';
                             location.reload();
                         }, 3000);
                     } else {
+                        overlay.remove();
                         showNotification('Failed to restart service: ' + (data.error || 'Unknown error'), 'error');
-                        btn.disabled = false;
-                        btn.textContent = 'Reboot Device';
                     }
                 }).catch(error => {
+                    overlay.remove();
                     showNotification('Restart failed: ' + error.message, 'error');
-                    btn.disabled = false;
-                    btn.textContent = 'Reboot Device';
                     console.error('Reboot error:', error);
                 });
             }
