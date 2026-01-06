@@ -662,6 +662,7 @@
         let isPlaying = true;
         let settingsOpen = false;
         let isLoadingSettings = false;  // Flag to prevent applying settings during page load
+        let settingsDebounceTimer = null;  // Timer for debouncing setting changes
 
         // Load system info on page load
         window.onload = function() {
@@ -777,49 +778,65 @@
         }
 
         function applySetting(key, value) {
-            const settings = {};
-
-            // Convert UI values to backend format
-            if (key === 'shutter') {
-                // UI shows 0-1200 scale (likely milliseconds), convert to microseconds
-                // Map 0-1200 range to 0-1200000 microseconds (0 to 1.2 seconds)
-                settings[key] = Math.round(value * 1000);
-            } else {
-                settings[key] = value;
+            // Cancel any pending setting update
+            if (settingsDebounceTimer) {
+                clearTimeout(settingsDebounceTimer);
             }
 
-            fetch('/apply', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(settings)
-            }).then(() => {
-                // Wait for camera to restart before reloading feed
-                setTimeout(() => {
-                    const img = document.getElementById('stream');
-                    img.src = '/video_feed?' + new Date().getTime();
-                }, 500);
-            });
+            // Wait 800ms after last change before applying
+            settingsDebounceTimer = setTimeout(() => {
+                const settings = {};
+
+                // Convert UI values to backend format
+                if (key === 'shutter') {
+                    // UI shows 0-1200 scale (likely milliseconds), convert to microseconds
+                    // Map 0-1200 range to 0-1200000 microseconds (0 to 1.2 seconds)
+                    settings[key] = Math.round(value * 1000);
+                } else {
+                    settings[key] = value;
+                }
+
+                fetch('/apply', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(settings)
+                }).then(() => {
+                    // Wait for camera to restart before reloading feed
+                    setTimeout(() => {
+                        const img = document.getElementById('stream');
+                        img.src = '/video_feed?' + new Date().getTime();
+                    }, 500);
+                });
+            }, 800);
         }
 
         function applyDropdown(key, value) {
-            const settings = {};
-            if (key === 'rotation') {
-                settings[key] = parseInt(value);
-            } else {
-                settings[key] = value;
+            // Cancel any pending setting update
+            if (settingsDebounceTimer) {
+                clearTimeout(settingsDebounceTimer);
             }
 
-            fetch('/apply', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(settings)
-            }).then(() => {
-                // Wait for camera to restart before reloading feed
-                setTimeout(() => {
-                    const img = document.getElementById('stream');
-                    img.src = '/video_feed?' + new Date().getTime();
-                }, 500);
-            });
+            // Dropdowns don't need as much delay (immediate selection)
+            settingsDebounceTimer = setTimeout(() => {
+                const settings = {};
+                if (key === 'rotation') {
+                    settings[key] = parseInt(value);
+                } else {
+                    settings[key] = value;
+                }
+
+                fetch('/apply', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(settings)
+                }).then(() => {
+                    // Wait for camera to restart before reloading feed
+                    setTimeout(() => {
+                        const img = document.getElementById('stream');
+                        img.src = '/video_feed?' + new Date().getTime();
+                    }, 500);
+                });
+            }, 300);  // Shorter delay for dropdowns
         }
 
         function applyResolution() {
