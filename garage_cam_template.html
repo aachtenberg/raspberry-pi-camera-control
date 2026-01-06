@@ -674,7 +674,8 @@
         // Initialize HLS video stream
         function initHLSStream() {
             const video = document.getElementById('stream');
-            const hlsUrl = '/hls/stream.m3u8';
+            // Add timestamp to bust cache
+            const hlsUrl = '/hls/stream.m3u8?t=' + new Date().getTime();
             
             if (Hls.isSupported()) {
                 hls = new Hls({
@@ -723,12 +724,22 @@
             }
         }
 
-        // Reload stream
+        // Reload stream with proper cleanup
         function reloadStream() {
+            const video = document.getElementById('stream');
+            
+            // Destroy existing HLS instance
             if (hls) {
                 hls.destroy();
+                hls = null;
             }
-            setTimeout(initHLSStream, 500);
+            
+            // Clear video source
+            video.src = '';
+            video.load();
+            
+            // Reinitialize after a longer delay to allow camera restart
+            setTimeout(initHLSStream, 1000);
         }
 
         // Load system info on page load
@@ -913,16 +924,18 @@
                 height: parseInt(res[1])
             };
 
+            showNotification(`Changing resolution to ${res[0]}x${res[1]}...`, 'info');
+
             fetch('/apply', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(settings)
             }).then(() => {
-                showNotification(`Resolution changed to ${res[0]}x${res[1]}`, 'success');
-                // Wait for camera to restart before reloading feed
+                showNotification(`Resolution changed, restarting stream...`, 'success');
+                // Wait longer for camera to restart at new resolution
                 setTimeout(() => {
                     reloadStream();
-                }, 800);
+                }, 2000);  // Increased from 800ms to 2000ms
             });
         }
 
