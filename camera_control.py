@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# Global camera process management
+current_camera_process = None
+camera_process_lock = threading.Lock()
+
 # Settings persistence
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'camera_settings.json')
 
@@ -798,9 +802,29 @@ HTML = '''
 </html>
 '''
 
+def stop_camera_process():
+    """Stop the current camera process if running"""
+    global current_camera_process
+    with camera_process_lock:
+        if current_camera_process and current_camera_process.poll() is None:
+            try:
+                logger.info("Stopping current camera process...")
+                current_camera_process.terminate()
+                current_camera_process.wait(timeout=2)
+                logger.info("Camera process stopped")
+            except:
+                try:
+                    current_camera_process.kill()
+                    current_camera_process.wait()
+                except:
+                    pass
+            current_camera_process = None
+
 def start_stream():
     """This function is now just for updating settings"""
     logger.info(f"Settings updated: {settings['width']}x{settings['height']} @ {settings['framerate']}fps")
+    # Stop current camera to apply new settings
+    stop_camera_process()
     # Save settings whenever they change
     save_settings()
 
@@ -860,6 +884,11 @@ def generate_frames():
                 stderr=subprocess.PIPE,
                 bufsize=65536  # Use 64KB buffer instead of unbuffered
             )
+
+            # Register as current camera process
+            global current_camera_process
+            with camera_process_lock:
+                current_camera_process = process
 
             # Parse MJPEG stream - MJPEG is a series of JPEG frames
             frame_buffer = b''

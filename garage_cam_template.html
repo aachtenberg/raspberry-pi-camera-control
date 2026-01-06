@@ -771,7 +771,7 @@
 
         function applySetting(key, value) {
             const settings = {};
-            
+
             // Convert UI values to backend format
             if (key === 'shutter') {
                 // UI shows 0-1200 scale (likely milliseconds), convert to microseconds
@@ -780,14 +780,17 @@
             } else {
                 settings[key] = value;
             }
-            
+
             fetch('/apply', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(settings)
             }).then(() => {
-                const img = document.getElementById('stream');
-                img.src = '/video_feed?' + new Date().getTime();
+                // Wait for camera to restart before reloading feed
+                setTimeout(() => {
+                    const img = document.getElementById('stream');
+                    img.src = '/video_feed?' + new Date().getTime();
+                }, 500);
             });
         }
 
@@ -798,14 +801,17 @@
             } else {
                 settings[key] = value;
             }
-            
+
             fetch('/apply', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(settings)
             }).then(() => {
-                const img = document.getElementById('stream');
-                img.src = '/video_feed?' + new Date().getTime();
+                // Wait for camera to restart before reloading feed
+                setTimeout(() => {
+                    const img = document.getElementById('stream');
+                    img.src = '/video_feed?' + new Date().getTime();
+                }, 500);
             });
         }
 
@@ -815,15 +821,18 @@
                 width: parseInt(res[0]),
                 height: parseInt(res[1])
             };
-            
+
             fetch('/apply', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(settings)
             }).then(() => {
-                const img = document.getElementById('stream');
-                img.src = '/video_feed?' + new Date().getTime();
                 showNotification(`Resolution changed to ${res[0]}x${res[1]}`, 'success');
+                // Wait for camera to restart before reloading feed
+                setTimeout(() => {
+                    const img = document.getElementById('stream');
+                    img.src = '/video_feed?' + new Date().getTime();
+                }, 500);
             });
         }
 
@@ -861,10 +870,13 @@
                 updateSlider('gain', 2);
                 updateSlider('shutter', 200);
                 updateSlider('contrast', 0.5);
-                
-                const img = document.getElementById('stream');
-                img.src = '/video_feed?' + new Date().getTime();
+
                 showNotification('Dark Mode Preset Applied', 'success');
+                // Wait for camera to restart before reloading feed
+                setTimeout(() => {
+                    const img = document.getElementById('stream');
+                    img.src = '/video_feed?' + new Date().getTime();
+                }, 500);
             });
         }
 
