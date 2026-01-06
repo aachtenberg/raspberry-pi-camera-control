@@ -33,6 +33,7 @@ ffmpeg_stderr = None  # Keep file handle alive to prevent zombie process
 # Directories
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'camera_settings.json')
 HLS_DIR = os.path.join(os.path.dirname(__file__), 'hls_segments')
+FIFO_PATH = os.path.join(os.path.dirname(__file__), 'camera_fifo')
 
 def save_settings():
     """Save current settings to file"""
@@ -83,7 +84,8 @@ settings = {
     'denoise': 'auto',  # Denoise mode
     'hdr': 'off',  # HDR mode
     'quality': 93,  # JPEG quality (1-100)
-    'snapshot_quality': 100  # Snapshot JPEG quality (80-100)
+    'snapshot_quality': 100,  # Snapshot JPEG quality (80-100)
+    'zoom': 1.0  # Digital zoom (1.0 = no zoom, max depends on user preference)
 }
 
 # Supported resolutions with fallback priorities (higher index = higher priority)
@@ -812,6 +814,14 @@ def stop_camera_process():
     """Stop the current camera process if running"""
     global current_camera_process
     with camera_process_lock:
+        logger.info("Stopping camera processes (rpicam-vid, ffmpeg)...")
+        
+        # Kill rpicam-vid and ffmpeg processes by name since they may be detached
+        os.system("pkill -f 'rpicam-vid.*h264'")
+        os.system("pkill -f 'ffmpeg.*hls'")
+        
+        time.sleep(0.5)  # Give them time to die
+        
         if current_camera_process and current_camera_process.poll() is None:
             try:
                 logger.info("Stopping current camera process...")
@@ -825,6 +835,8 @@ def stop_camera_process():
                 except:
                     pass
             current_camera_process = None
+        
+        logger.info("Camera processes stopped")
 
 def start_h264_camera():
     """Start H.264 hardware-accelerated camera with HLS output"""
@@ -864,10 +876,10 @@ def start_h264_camera():
         '--awb', settings['awb'],
         '--rotation', str(settings['rotation']),
         '--inline',  # Inline headers for streaming
-        '-o', 'tcp://127.0.0.1:8888'  # Connect to ffmpeg TCP server (no --listen)
+        '-o', '-'  # Output to stdout for piping
     ]
 
-    # Add advanced settings
+    # Add advanced settings BEFORE building full command
     if settings['ev'] != 0:
         cmd.extend(['--ev', str(settings['ev'])])
     if settings['shutter'] > 0:
@@ -884,14 +896,42 @@ def start_h264_camera():
     if settings['vflip']:
         cmd.append('--vflip')
 
+    # Apply digital zoom (ROI)
+    zoom_factor = float(settings.get('zoom', 1.0))
+    if zoom_factor > 1.0:
+        w = 1.0 / zoom_factor
+        h = 1.0 / zoom_factor
+        x = (1.0 - w) / 2.0
+        y = (1.0 - h) / 2.0
+        cmd.extend(['--roi', f"{x},{y},{w},{h}"])
+
+    # Build ffmpeg command
+    ffmpeg_cmd = [
+        'ffmpeg',
+        '-hide_banner',
+        '-loglevel', 'warning',
+        '-f', 'h264',
+        '-i', '-',  # Read raw H.264 from stdin
+        '-c:v', 'copy',
+        '-f', 'hls',
+        '-hls_time', '2',
+        '-hls_list_size', '10',
+        '-hls_flags', 'delete_segments+append_list',
+        '-hls_segment_filename', os.path.join(HLS_DIR, 'segment_%03d.ts'),
+        os.path.join(HLS_DIR, 'stream.m3u8')
+    ]
+
+    # Combine commands with pipe - AFTER all rpicam-vid args are added
+    full_cmd = ' '.join(cmd) + ' | ' + ' '.join(ffmpeg_cmd)
+
     # Log file for debugging
     log_file = os.path.join(os.path.dirname(__file__), 'h264_camera.log')
 
     try:
-        logger.info(f"Starting H.264 camera with command: {' '.join(cmd)}")
+        logger.info(f"Starting H.264 camera with command: {full_cmd}")
         
         # Close previous log file if it exists
-        global h264_stderr
+        global h264_stderr, current_camera_process
         if h264_stderr and not h264_stderr.closed:
             try:
                 h264_stderr.close()
@@ -903,14 +943,18 @@ def start_h264_camera():
         
         # CRITICAL: Use devnull for stdout and file for stderr to prevent zombie process
         process = subprocess.Popen(
-            cmd,
+            full_cmd,
+            shell=True,
             stdout=subprocess.DEVNULL,
             stderr=h264_stderr,
             start_new_session=True  # Detach from parent process
         )
+        
+        # Save process reference
+        current_camera_process = process
 
         # Wait a moment and check if process is still running
-        time.sleep(1)
+        time.sleep(2)  # Increased wait for ffmpeg to initialize
         if process.poll() is not None:
             # Process exited, read stderr
             try:
@@ -926,7 +970,7 @@ def start_h264_camera():
             camera_running = True
 
         logger.info("H.264 hardware-accelerated camera started successfully")
-        logger.info("H.264 stream connecting to tcp://127.0.0.1:8888")
+        logger.info("H.264 stream piping to ffmpeg for HLS")
         
         return True
     except Exception as e:
@@ -947,8 +991,10 @@ def run_ffmpeg_hls_converter():
             
             cmd = [
                 'ffmpeg',
+                '-hide_banner',
+                '-loglevel', 'warning',
                 '-listen', '1',       # Act as TCP server
-                '-i', 'tcp://0.0.0.0:8888',  # Listen on all interfaces
+                '-i', 'tcp://0.0.0.0:8888?listen_timeout=60000',  # Listen with timeout
                 '-c:v', 'copy',  # Copy video without re-encoding
                 '-f', 'hls',
                 '-hls_time', '2',  # 2 second segments
@@ -981,15 +1027,15 @@ def run_ffmpeg_hls_converter():
             # Monitor process
             while True:
                 if process.poll() is not None:
-                    logger.warning("ffmpeg HLS converter exited, will restart in 3 seconds...")
+                    logger.warning("ffmpeg HLS converter exited, will restart in 0.5 seconds...")
                     break
-                time.sleep(5)
+                time.sleep(0.5)  # Check frequently to restart fast
                 
         except Exception as e:
-            logger.error(f"ffmpeg HLS converter error: {e}, restarting in 3 seconds...")
+            logger.error(f"ffmpeg HLS converter error: {e}, restarting in 1 second...")
         
-        # Wait before restarting
-        time.sleep(3)
+        # Wait before restarting - reduced from 3s to 1s for faster recovery
+        time.sleep(1)
 
 def start_stream():
     """This function is now just for updating settings"""
@@ -1000,7 +1046,10 @@ def start_stream():
     # Restart H.264 camera if using hardware acceleration
     if use_hw_acceleration:
         stop_camera_process()
-        time.sleep(0.5)  # Brief pause for cleanup
+        # Wait for ffmpeg to be ready for new connection
+        # ffmpeg will auto-restart when old connection closes
+        logger.info("Waiting for ffmpeg to be ready for new connection...")
+        time.sleep(2)  # Give ffmpeg time to restart and listen
         threading.Thread(target=start_h264_camera, daemon=True).start()
 
 def generate_frames():
@@ -1223,7 +1272,7 @@ def get_system_info():
 
 @app.route('/snapshot', methods=['POST'])
 def take_snapshot():
-    """Take a high-quality snapshot"""
+    """Take a high-quality snapshot by temporarily stopping the video stream"""
     try:
         from datetime import datetime
         import os
@@ -1236,6 +1285,13 @@ def take_snapshot():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'snapshot_{timestamp}.jpg'
         filepath = os.path.join(snapshot_dir, filename)
+
+        logger.info(f"Taking snapshot: {filename}")
+        
+        # Stop the video stream to release camera lock
+        logger.info("Stopping video stream for snapshot...")
+        stop_camera_process()
+        time.sleep(1)  # Wait for camera to be released
 
         # Build command for high-quality snapshot
         cmd = [
@@ -1274,7 +1330,14 @@ def take_snapshot():
             cmd.append('--vflip')
 
         # Capture the image
+        logger.info(f"Executing snapshot command: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, timeout=10)
+
+        # Restart video stream immediately after snapshot
+        if use_hw_acceleration:
+            logger.info("Restarting video stream...")
+            time.sleep(0.5)
+            threading.Thread(target=start_h264_camera, daemon=True).start()
 
         if result.returncode == 0 and os.path.exists(filepath):
             logger.info(f"Snapshot saved: {filepath}")
@@ -1288,7 +1351,7 @@ def take_snapshot():
                 'timestamp': timestamp
             })
         else:
-            logger.error(f"Snapshot failed: {result.stderr.decode()}")
+            logger.error(f"Snapshot failed: {result.stderr.decode() if result.stderr else 'Unknown error'}")
             return jsonify({
                 'success': False,
                 'error': f'Camera error: {result.stderr.decode() if result.stderr else "Unknown error"}'
@@ -1296,9 +1359,15 @@ def take_snapshot():
 
     except subprocess.TimeoutExpired:
         logger.error("Snapshot timed out")
+        if use_hw_acceleration:
+            time.sleep(0.5)
+            threading.Thread(target=start_h264_camera, daemon=True).start()
         return jsonify({'success': False, 'error': 'Camera timeout'}), 500
     except Exception as e:
         logger.error(f"Snapshot error: {e}")
+        if use_hw_acceleration:
+            time.sleep(0.5)
+            threading.Thread(target=start_h264_camera, daemon=True).start()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/snapshots/<filename>')
@@ -1327,11 +1396,19 @@ def apply_settings():
     new_settings['height'] = validated_res['height']
     settings.update(new_settings)
 
-    # Stop current camera and reset flag so new stream can start with new settings
+    # Smart restart logic:
+    # 1. If resolution or framerate changed -> Must restart everything (stop_camera_process)
+    # 2. If simple settings (brightness, etc) -> Can potentially update on-the-fly (not implemented yet for rpicam-vid)
+    #    For now, H.264 rpicam-vid needs restart for ALL parameter changes
+    
+    # Check if this update requires a full stream restart (resolution/fps change)
+    # Note: Currently rpicam-vid requires restart for most changes anyway
+    
     stop_camera_process()
     with camera_process_lock:
         camera_running = False
 
+    # Start new stream in background
     threading.Thread(target=start_stream, daemon=True).start()
 
     response = {'status': 'ok', 'resolution': f"{validated_res['width']}x{validated_res['height']}"}
@@ -1346,7 +1423,7 @@ def reset_settings():
     """Reset all settings to defaults"""
     global camera_running
 
-    # Default settings
+    # Reset to default settings
     default_settings = {
         'camera_name': 'Garage Cam',
         'width': 1280,
@@ -1368,7 +1445,8 @@ def reset_settings():
         'denoise': 'auto',
         'hdr': 'off',
         'quality': 93,
-        'snapshot_quality': 100
+        'snapshot_quality': 100,
+        'zoom': 1.0
     }
 
     # Update runtime settings
@@ -1392,10 +1470,7 @@ if __name__ == '__main__':
     # Start H.264 camera if using hardware acceleration
     if use_hw_acceleration:
         logger.info("Starting H.264 hardware-accelerated camera...")
-        # Start ffmpeg TCP server first
-        threading.Thread(target=run_ffmpeg_hls_converter, daemon=True).start()
-        time.sleep(2)  # Give ffmpeg time to start listening
-        # Then start rpicam-vid which will connect to ffmpeg
+        # Start the combined rpicam | ffmpeg pipeline
         threading.Thread(target=start_h264_camera, daemon=True).start()
         time.sleep(1)  # Give camera time to initialize
 

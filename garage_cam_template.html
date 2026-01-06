@@ -421,9 +421,21 @@
 
     <!-- Bottom Controls -->
     <div class="bottom-bar">
-        <button class="control-btn" onclick="togglePlayPause()" id="play-pause-btn">⏸</button>
-        <button class="control-btn" onclick="takeSnapshot()" title="Take Picture">📷</button>
-        <button class="control-btn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
+        <button class="control-btn" onclick="togglePlayPause()" id="play-pause-btn" title="Play/Pause">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button class="control-btn" onclick="stopStream()" title="Stop Stream">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+        </button>
+        <button class="control-btn" onclick="takeSnapshot()" title="Take Picture">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                <path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>
+                <circle cx="12" cy="12" r="3.2"/>
+            </svg>
+        </button>
+        <button class="control-btn" onclick="toggleFullscreen()" title="Fullscreen">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
     </div>
 
     <!-- Settings Panel -->
@@ -444,6 +456,15 @@
             <!-- Video Settings -->
             <div class="settings-section">
                 <h3>VIDEO</h3>
+                
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Digital Zoom</span>
+                        <span class="slider-value" id="zoom_val">1.0</span>x
+                    </div>
+                    <input type="range" id="zoom" min="1.0" max="4.0" value="1.0" step="0.1" oninput="updateSlider('zoom', this.value)">
+                </div>
+
                 <div class="slider-group">
                     <div class="slider-label">
                         <span>Resolution</span>
@@ -665,6 +686,11 @@
     </div>
 
     <script>
+        const ICONS = {
+            play: '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+            pause: '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>'
+        };
+
         let isPlaying = true;
         let settingsOpen = false;
         let isLoadingSettings = false;  // Flag to prevent applying settings during page load
@@ -683,7 +709,17 @@
                     lowLatencyMode: true,
                     backBufferLength: 10,
                     maxBufferLength: 20,
-                    maxMaxBufferLength: 30
+                    maxMaxBufferLength: 30,
+                    // Latency tuning
+                    liveSyncDurationCount: 2, // Aim for ~4s latency (2 segments)
+                    liveMaxLatencyDurationCount: 5, // Jump to live if >10s behind
+                    maxLiveSyncPlaybackRate: 1.2, // Speed up slightly to catch up
+                    manifestLoadingTimeOut: 10000,
+                    manifestLoadingMaxRetry: 10,
+                    manifestLoadingRetryDelay: 1000,
+                    levelLoadingTimeOut: 10000,
+                    levelLoadingMaxRetry: 10,
+                    levelLoadingRetryDelay: 1000
                 });
                 
                 hls.loadSource(hlsUrl);
@@ -699,17 +735,19 @@
                     if (data.fatal) {
                         switch(data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                console.log('Network error, trying to recover...');
-                                hls.startLoad();
+                                console.log('Network error, retrying in 2 seconds...');
+                                setTimeout(() => {
+                                    hls.destroy();
+                                    setTimeout(initHLSStream, 500);
+                                }, 2000);
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
                                 console.log('Media error, trying to recover...');
                                 hls.recoverMediaError();
                                 break;
                             default:
-                                console.log('Fatal error, destroying player');
+                                console.log('Fatal error, retrying in 3 seconds...');
                                 hls.destroy();
-                                // Try to reinitialize after 3 seconds
                                 setTimeout(initHLSStream, 3000);
                                 break;
                         }
@@ -720,6 +758,10 @@
                 video.src = hlsUrl;
                 video.addEventListener('loadedmetadata', function() {
                     video.play();
+                });
+                video.addEventListener('error', function() {
+                    console.log('Video error, retrying in 3 seconds...');
+                    setTimeout(initHLSStream, 3000);
                 });
             }
         }
@@ -787,12 +829,33 @@
             const btn = document.getElementById('play-pause-btn');
             const video = document.getElementById('stream');
             if (isPlaying) {
-                btn.textContent = '⏸';
-                video.play();
+                // If stream was fully stopped (src removed), re-init
+                if (!video.src && !hls) {
+                    initHLSStream();
+                } else {
+                    btn.innerHTML = ICONS.pause;
+                    if (hls) hls.startLoad();
+                    video.play();
+                }
             } else {
-                btn.textContent = '▶';
+                btn.innerHTML = ICONS.play;
                 video.pause();
             }
+        }
+
+        function stopStream() {
+            if (hls) {
+                hls.stopLoad();
+                hls.destroy();
+                hls = null;
+            }
+            const video = document.getElementById('stream');
+            video.pause();
+            video.src = ''; // Clear source to make it black/empty
+            video.load();   // Force clear
+            
+            isPlaying = false;
+            document.getElementById('play-pause-btn').innerHTML = ICONS.play;
         }
 
         function toggleFullscreen() {
@@ -804,8 +867,10 @@
         }
 
         function toggleSwitch(element, setting) {
+            console.log('toggleSwitch called with', setting, element);
             element.classList.toggle('active');
             const isActive = element.classList.contains('active');
+            console.log('isActive:', isActive);
             
             // Handle different toggle types
             if (setting === 'vflip' || setting === 'hflip') {
@@ -840,6 +905,7 @@
 
             // Apply setting immediately
             const settingMap = {
+                'zoom': 'zoom',
                 'gain': 'gain',
                 'shutter': 'shutter',
                 'contrast': 'contrast',
@@ -858,6 +924,7 @@
         }
 
         function applySetting(key, value) {
+            console.log('applySetting called:', key, value);
             // Cancel any pending setting update
             if (settingsDebounceTimer) {
                 clearTimeout(settingsDebounceTimer);
@@ -865,6 +932,7 @@
 
             // Wait 800ms after last change before applying
             settingsDebounceTimer = setTimeout(() => {
+                console.log('applySetting timeout fired, sending to backend');
                 const settings = {};
 
                 // Convert UI values to backend format
@@ -876,13 +944,26 @@
                     settings[key] = value;
                 }
 
+                console.log('Sending fetch request:', settings);
                 fetch('/apply', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(settings)
-                }).then(() => {
-                    // Settings applied - no need to reload stream
-                    // Camera updates settings without restarting
+                }).then(response => {
+                    console.log('Apply response status:', response.status);
+                    return response.json();
+                }).then(data => {
+                    console.log('Apply response data:', data);
+                    // Settings applied
+                    if (key === 'vflip' || key === 'hflip') {
+                        // These settings require camera restart, so reload the stream
+                        console.log('Flip setting changed, reloading stream in 2 seconds');
+                        setTimeout(reloadStream, 2000);  // Wait 2 seconds for camera to restart
+                    }
+                    // No need to reload stream for other settings
+                }).catch(error => {
+                    console.error('Apply setting failed:', error);
+                    showNotification('Failed to apply setting: ' + error.message, 'error');
                 });
             }, 800);
         }
@@ -914,6 +995,9 @@
         }
 
         function applyResolution() {
+            // Stop stream immediately to prevent 404s and race conditions
+            stopStream();
+
             const res = document.getElementById('resolution').value.split('x');
             const settings = {
                 width: parseInt(res[0]),
@@ -927,37 +1011,71 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(settings)
             }).then(() => {
-                showNotification(`Resolution changed, restarting stream...`, 'success');
-                // Wait longer for camera to restart at new resolution
+                showNotification(`Resolution changed`, 'success');
+                // Wait for camera/ffmpeg to restart and create initial segments
+                // Needs about 2s for startup + 2s for first segment
                 setTimeout(() => {
-                    reloadStream();
-                }, 2000);  // Increased from 800ms to 2000ms
+                    initHLSStream();
+                }, 4000); 
             });
         }
 
         function takeSnapshot() {
+            const snapshotBtn = event.target.closest('button');
+            const originalText = snapshotBtn.innerText;
+            
+            // Disable button and show feedback
+            snapshotBtn.disabled = true;
+            snapshotBtn.innerText = 'Taking photo...';
+            
+            console.log('Snapshot: Sending POST request...');
+            
             fetch('/snapshot', {method: 'POST'})
-                .then(r => r.json())
+                .then(r => {
+                    console.log('Snapshot: Received response, status:', r.status);
+                    return r.json();
+                })
                 .then(data => {
+                    console.log('Snapshot: Response data:', data);
+                    snapshotBtn.innerText = originalText;
+                    snapshotBtn.disabled = false;
+                    
                     if (data.success) {
+                        console.log('Snapshot: Success! Downloading:', data.filename);
                         showNotification('Picture saved: ' + data.filename, 'success');
+                        
+                        // Download the file
                         const link = document.createElement('a');
                         link.href = data.url;
                         link.download = data.filename;
+                        document.body.appendChild(link);
                         link.click();
+                        document.body.removeChild(link);
+                    } else {
+                        console.error('Snapshot: Failed -', data.error);
+                        showNotification('Snapshot failed: ' + data.error, 'error');
                     }
+                })
+                .catch(error => {
+                    console.error('Snapshot: Fetch error -', error);
+                    snapshotBtn.innerText = originalText;
+                    snapshotBtn.disabled = false;
+                    showNotification('Snapshot error: ' + error, 'error');
                 });
         }
 
         function applyDaytimePreset() {
-            // Apply daytime optimized settings with HDR
+            // Stop stream first to prevent errors
+            stopStream();
+            
+            // Apply daytime optimized settings (no HDR - causes crashes on Pi Zero)
             const presetSettings = {
                 gain: 0,           // Auto gain (plenty of light)
                 shutter: 0,        // Auto shutter (fast for bright conditions)
                 contrast: 1.2,     // Slightly higher for vibrant colors
                 saturation: 1.2,   // Slightly higher for vivid daytime colors
                 brightness: 0,     // Normal brightness
-                hdr: 'auto',       // HDR on for better dynamic range
+                hdr: 'off',        // HDR off (causes device timeout on Pi Zero 2W)
                 exposure: 'normal',
                 denoise: 'auto'    // Auto denoise
             };
@@ -973,7 +1091,7 @@
                 document.getElementById('contrast').value = 1.2;
                 document.getElementById('saturation').value = 1.2;
                 document.getElementById('brightness').value = 0;
-                document.getElementById('hdr').value = 'auto';
+                document.getElementById('hdr').value = 'off';
                 document.getElementById('exposure').value = 'normal';
                 document.getElementById('denoise').value = 'auto';
 
@@ -983,7 +1101,12 @@
                 updateSlider('saturation', 1.2);
                 updateSlider('brightness', 0);
 
-                showNotification('Daytime Preset Applied - HDR enabled', 'success');
+                showNotification('Daytime Preset Applied', 'success');
+                
+                // Restart stream after delay
+                setTimeout(() => {
+                    initHLSStream();
+                }, 3000);
             });
         }
 
@@ -1080,6 +1203,15 @@
                         document.getElementById('camera-name').textContent = '• ' + settings.camera_name;
                     }
 
+                    // Set Resolution Dropdown
+                    if (settings.width && settings.height) {
+                        const resString = `${settings.width}x${settings.height}`;
+                        const resolutionSelect = document.getElementById('resolution');
+                        if (resolutionSelect) {
+                            resolutionSelect.value = resString;
+                        }
+                    }
+
                     // Apply loaded settings to UI
                     const vflipToggle = document.querySelector('[onclick*="vflip"]');
                     const hflipToggle = document.querySelector('[onclick*="hflip"]');
@@ -1131,6 +1263,10 @@
         }
 
         function showNotification(message, type) {
+            // Remove existing notifications to prevent stacking
+            const existing = document.querySelectorAll('.notification');
+            existing.forEach(e => e.remove());
+
             const notif = document.createElement('div');
             notif.className = `notification ${type}`;
             notif.textContent = message;
