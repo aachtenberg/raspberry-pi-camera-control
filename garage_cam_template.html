@@ -470,17 +470,16 @@
                         <span>Resolution</span>
                     </div>
                     <select id="resolution" onchange="applyResolution()">
-                        <option value="1920x1080">1920x1080 (Full HD)</option>
-                        <option value="1280x720" selected>1280x720 (HD)</option>
                         <option value="640x480">640x480 (SD)</option>
+                        <option value="320x240" selected>320x240 (QVGA)</option>
                     </select>
                 </div>
                 <div class="slider-group">
                     <div class="slider-label">
                         <span>Framerate</span>
-                        <span class="slider-value" id="framerate_val">15</span> fps
+                        <span class="slider-value" id="framerate_val">5</span> fps
                     </div>
-                    <input type="range" id="framerate" min="10" max="30" value="15" step="5" oninput="updateSlider('framerate', this.value)">
+                    <input type="range" id="framerate" min="3" max="15" value="5" step="1" oninput="updateSlider('framerate', this.value)">
                 </div>
             </div>
 
