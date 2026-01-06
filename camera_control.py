@@ -26,9 +26,11 @@ current_camera_process = None
 camera_process_lock = threading.Lock()
 camera_frame_buffer = []  # Shared frame buffer for all clients
 camera_running = False
+use_hw_acceleration = True  # Use H.264 hardware encoding by default
 
-# Settings persistence
+# Directories
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'camera_settings.json')
+HLS_DIR = os.path.join(os.path.dirname(__file__), 'hls_segments')
 
 def save_settings():
     """Save current settings to file"""
@@ -822,11 +824,85 @@ def stop_camera_process():
                     pass
             current_camera_process = None
 
+def start_h264_camera():
+    """Start H.264 hardware-accelerated camera with HLS output"""
+    global current_camera_process, camera_running
+
+    # Clean up old HLS segments
+    for file in os.listdir(HLS_DIR):
+        if file.endswith(('.ts', '.m3u8')):
+            try:
+                os.remove(os.path.join(HLS_DIR, file))
+            except:
+                pass
+
+    cmd = [
+        'rpicam-vid',
+        '--codec', 'libav',  # H.264 hardware encoder
+        '--libav-format', 'hls',  # HLS output format
+        '--libav-audio', '0',  # No audio
+        '--width', str(settings['width']),
+        '--height', str(settings['height']),
+        '--framerate', str(settings['framerate']),
+        '--timeout', '0',  # Run indefinitely
+        '--brightness', str(settings['brightness']),
+        '--contrast', str(settings['contrast']),
+        '--saturation', str(settings['saturation']),
+        '--sharpness', str(settings['sharpness']),
+        '--exposure', settings['exposure'],
+        '--metering', settings['metering'],
+        '--awb', settings['awb'],
+        '--rotation', str(settings['rotation']),
+        '-o', os.path.join(HLS_DIR, 'stream.m3u8'),
+        '--inline-headers',  # Include headers in stream
+        '--segment', '1'  # 1 second segments
+    ]
+
+    # Add advanced settings
+    if settings['ev'] != 0:
+        cmd.extend(['--ev', str(settings['ev'])])
+    if settings['shutter'] > 0:
+        cmd.extend(['--shutter', str(settings['shutter'])])
+    if settings['gain'] > 0:
+        cmd.extend(['--gain', str(settings['gain'])])
+    if settings['denoise'] != 'auto':
+        cmd.extend(['--denoise', settings['denoise']])
+    if settings['hdr'] != 'off':
+        cmd.extend(['--hdr', settings['hdr']])
+
+    if settings['hflip']:
+        cmd.append('--hflip')
+    if settings['vflip']:
+        cmd.append('--vflip')
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        with camera_process_lock:
+            current_camera_process = process
+            camera_running = True
+
+        logger.info("H.264 hardware-accelerated camera started")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to start H.264 camera: {e}")
+        return False
+
 def start_stream():
     """This function is now just for updating settings"""
     logger.info(f"Settings updated: {settings['width']}x{settings['height']} @ {settings['framerate']}fps")
     # Save settings whenever they change
     save_settings()
+
+    # Restart H.264 camera if using hardware acceleration
+    if use_hw_acceleration:
+        stop_camera_process()
+        time.sleep(0.5)  # Brief pause for cleanup
+        threading.Thread(target=start_h264_camera, daemon=True).start()
 
 def generate_frames():
     """Capture frames using optimized method - try rpicam-vid first, fallback to rpicam-still"""
@@ -994,8 +1070,18 @@ def generate_frames():
 def index():
     return render_template_string(get_html())
 
+@app.route('/hls/<path:filename>')
+def serve_hls(filename):
+    """Serve HLS playlist and segments"""
+    try:
+        return send_from_directory(HLS_DIR, filename)
+    except Exception as e:
+        logger.error(f"Error serving HLS file {filename}: {e}")
+        return jsonify({'error': 'File not found'}), 404
+
 @app.route('/video_feed')
 def video_feed():
+    """Legacy MJPEG endpoint - kept for fallback"""
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/settings')
@@ -1204,6 +1290,14 @@ if __name__ == '__main__':
     # Load saved settings on startup
     load_settings()
 
+    # Start H.264 camera if using hardware acceleration
+    if use_hw_acceleration:
+        logger.info("Starting H.264 hardware-accelerated camera...")
+        threading.Thread(target=start_h264_camera, daemon=True).start()
+        time.sleep(1)  # Give camera time to initialize
+
     logger.info("Starting camera control interface...")
     logger.info("Access at: http://192.168.0.169:5000")
+    logger.info(f"Hardware acceleration: {'enabled (H.264)' if use_hw_acceleration else 'disabled (MJPEG)'}")
+
     app.run(host='0.0.0.0', port=5000, threaded=True)

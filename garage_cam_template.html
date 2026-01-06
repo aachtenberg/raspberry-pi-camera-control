@@ -3,6 +3,7 @@
 <head>
     <title>Garage Cam</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -411,7 +412,7 @@
     <!-- Main Video Area -->
     <div class="video-container">
         <div class="timestamp" id="timestamp"></div>
-        <img id="stream" src="/video_feed" alt="Camera feed">
+        <video id="stream" class="camera-stream" controls autoplay muted playsinline></video>
     </div>
 
     <!-- Bottom Controls -->
@@ -664,9 +665,55 @@
         let settingsOpen = false;
         let isLoadingSettings = false;  // Flag to prevent applying settings during page load
         let settingsDebounceTimer = null;  // Timer for debouncing setting changes
+        let hls = null;  // HLS player instance
+
+        // Initialize HLS video player
+        function initHLSPlayer() {
+            const video = document.getElementById('stream');
+            const hlsUrl = '/hls/stream.m3u8';
+
+            if (Hls.isSupported()) {
+                hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 90
+                });
+                hls.loadSource(hlsUrl);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    video.play().catch(e => console.log('Autoplay prevented:', e));
+                });
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    if (data.fatal) {
+                        console.error('HLS fatal error:', data);
+                        // Try to recover
+                        setTimeout(() => {
+                            hls.loadSource(hlsUrl);
+                        }, 1000);
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native HLS support (Safari)
+                video.src = hlsUrl;
+                video.addEventListener('loadedmetadata', function() {
+                    video.play().catch(e => console.log('Autoplay prevented:', e));
+                });
+            }
+        }
+
+        // Reload HLS stream
+        function reloadStream() {
+            if (hls) {
+                hls.destroy();
+            }
+            setTimeout(() => {
+                initHLSPlayer();
+            }, 500);
+        }
 
         // Load system info on page load
         window.onload = function() {
+            initHLSPlayer();
             loadSystemInfo();
             updateTimestamp();
             setInterval(updateTimestamp, 1000);
@@ -705,14 +752,16 @@
         }
 
         function togglePlayPause() {
-            isPlaying = !isPlaying;
             const btn = document.getElementById('play-pause-btn');
             const stream = document.getElementById('stream');
-            if (isPlaying) {
+            if (stream.paused) {
+                stream.play();
                 btn.textContent = '⏸';
-                stream.src = '/video_feed?' + new Date().getTime();
+                isPlaying = true;
             } else {
+                stream.pause();
                 btn.textContent = '▶';
+                isPlaying = false;
             }
         }
 
@@ -804,9 +853,8 @@
                 }).then(() => {
                     // Wait for camera to restart before reloading feed
                     setTimeout(() => {
-                        const img = document.getElementById('stream');
-                        img.src = '/video_feed?' + new Date().getTime();
-                    }, 500);
+                        reloadStream();
+                    }, 800);
                 });
             }, 800);
         }
@@ -833,9 +881,8 @@
                 }).then(() => {
                     // Wait for camera to restart before reloading feed
                     setTimeout(() => {
-                        const img = document.getElementById('stream');
-                        img.src = '/video_feed?' + new Date().getTime();
-                    }, 500);
+                        reloadStream();
+                    }, 800);
                 });
             }, 300);  // Shorter delay for dropdowns
         }
@@ -855,9 +902,8 @@
                 showNotification(`Resolution changed to ${res[0]}x${res[1]}`, 'success');
                 // Wait for camera to restart before reloading feed
                 setTimeout(() => {
-                    const img = document.getElementById('stream');
-                    img.src = '/video_feed?' + new Date().getTime();
-                }, 500);
+                    reloadStream();
+                }, 800);
             });
         }
 
@@ -912,9 +958,8 @@
                 showNotification('Daytime Preset Applied - HDR enabled', 'success');
                 // Wait for camera to restart before reloading feed
                 setTimeout(() => {
-                    const img = document.getElementById('stream');
-                    img.src = '/video_feed?' + new Date().getTime();
-                }, 500);
+                    reloadStream();
+                }, 800);
             });
         }
 
@@ -942,9 +987,8 @@
                 showNotification('Dark Mode Preset Applied', 'success');
                 // Wait for camera to restart before reloading feed
                 setTimeout(() => {
-                    const img = document.getElementById('stream');
-                    img.src = '/video_feed?' + new Date().getTime();
-                }, 500);
+                    reloadStream();
+                }, 800);
             });
         }
 
@@ -976,9 +1020,8 @@
                 showNotification('Performance Mode Applied - Lower CPU usage', 'success');
                 // Wait for camera to restart before reloading feed
                 setTimeout(() => {
-                    const img = document.getElementById('stream');
-                    img.src = '/video_feed?' + new Date().getTime();
-                }, 500);
+                    reloadStream();
+                }, 800);
             });
         }
 

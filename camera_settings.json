@@ -1,12 +1,12 @@
 {
-  "camera_name": "Garage Cam",
+  "camera_name": "Kitchen",
   "width": 1280,
   "height": 720,
   "framerate": 15,
   "brightness": 0,
   "contrast": 1,
   "saturation": 1,
-  "sharpness": 2,
+  "sharpness": 1,
   "exposure": "normal",
   "metering": "centre",
   "awb": "auto",
@@ -17,7 +17,7 @@
   "shutter": 0,
   "gain": 0,
   "denoise": "auto",
-  "hdr": "auto",
+  "hdr": "off",
   "quality": 93,
   "snapshot_quality": 100
 }

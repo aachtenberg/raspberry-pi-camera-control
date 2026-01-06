@@ -19,6 +19,9 @@ ENV/
 # Snapshots directory - don't commit images
 snapshots/
 
+# HLS segments - don't commit streaming files
+hls_segments/
+
 # Local settings that may contain sensitive info
 *.local
 
