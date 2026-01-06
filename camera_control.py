@@ -26,7 +26,7 @@ current_camera_process = None
 camera_process_lock = threading.Lock()
 camera_frame_buffer = []  # Shared frame buffer for all clients
 camera_running = False
-use_hw_acceleration = True  # Use H.264 hardware encoding by default
+use_hw_acceleration = False  # Use H.264 hardware encoding by default (disabled for now)
 
 # Directories
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'camera_settings.json')
