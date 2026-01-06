@@ -24,6 +24,8 @@ app = Flask(__name__)
 # Global camera process management
 current_camera_process = None
 camera_process_lock = threading.Lock()
+camera_frame_buffer = []  # Shared frame buffer for all clients
+camera_running = False
 
 # Settings persistence
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'camera_settings.json')
@@ -830,146 +832,165 @@ def start_stream():
 
 def generate_frames():
     """Capture frames using optimized method - try rpicam-vid first, fallback to rpicam-still"""
-    # Use lower quality for streaming to improve performance
-    stream_quality = min(settings['quality'], 50)  # Cap at 50 for better CPU efficiency
+    global camera_running, current_camera_process
 
-    last_restart_time = time.time()
+    # Check if camera is already running - only allow one stream at a time
+    with camera_process_lock:
+        if camera_running:
+            logger.warning("Camera already in use by another client")
+            # Return error frame
+            error_msg = b'Camera in use by another viewer'
+            yield (b'--frame\r\n'
+                   b'Content-Type: text/plain\r\n\r\n' + error_msg + b'\r\n')
+            return
+        camera_running = True
 
-    while True:
-        process = None
-        try:
-            # Try using rpicam-vid with MJPEG for better performance
-            # This keeps the camera initialized and streams continuously
-            cmd = [
-                'rpicam-vid',
-                '--nopreview',
-                '--codec', 'mjpeg',
-                '--width', str(settings['width']),
-                '--height', str(settings['height']),
-                '--framerate', str(settings['framerate']),
-                '--timeout', '0',  # Run indefinitely
-                '--brightness', str(settings['brightness']),
-                '--contrast', str(settings['contrast']),
-                '--saturation', str(settings['saturation']),
-                '--sharpness', str(settings['sharpness']),
-                '--exposure', settings['exposure'],
-                '--metering', settings['metering'],
-                '--awb', settings['awb'],
-                '--rotation', str(settings['rotation']),
-                '--quality', str(stream_quality),
-                '-o', '-'  # Output to stdout
-            ]
+    try:
+        # Use lower quality for streaming to improve performance
+        stream_quality = min(settings['quality'], 50)  # Cap at 50 for better CPU efficiency
 
-            # Add advanced settings
-            if settings['ev'] != 0:
-                cmd.extend(['--ev', str(settings['ev'])])
-            if settings['shutter'] > 0:
-                cmd.extend(['--shutter', str(settings['shutter'])])
-            if settings['gain'] > 0:
-                cmd.extend(['--gain', str(settings['gain'])])
-            if settings['denoise'] != 'auto':
-                cmd.extend(['--denoise', settings['denoise']])
-            if settings['hdr'] != 'off':
-                cmd.extend(['--hdr', settings['hdr']])
+        last_restart_time = time.time()
 
-            if settings['hflip']:
-                cmd.append('--hflip')
-            if settings['vflip']:
-                cmd.append('--vflip')
-
-            # Start continuous video stream
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=65536  # Use 64KB buffer instead of unbuffered
-            )
-
-            # Register as current camera process
-            global current_camera_process
-            with camera_process_lock:
-                current_camera_process = process
-
-            # Parse MJPEG stream - MJPEG is a series of JPEG frames
-            frame_buffer = b''
-            jpeg_start = b'\xff\xd8'
-            jpeg_end = b'\xff\xd9'
-
-            while True:
-                chunk = process.stdout.read(16384)  # Read larger chunks
-                if not chunk:
-                    if process.poll() is not None:
-                        break
-                    time.sleep(0.01)
-                    continue
-
-                frame_buffer += chunk
-
-                # Extract complete JPEG frames
-                # Process only one frame per chunk read to prevent CPU spinning
-                frames_processed = 0
-                while frames_processed < 1:  # Limit to 1 frame per iteration
-                    start_idx = frame_buffer.find(jpeg_start)
-                    if start_idx == -1:
-                        frame_buffer = frame_buffer[-2048:]  # Keep last 2KB
-                        break
-
-                    end_idx = frame_buffer.find(jpeg_end, start_idx + 2)
-                    if end_idx == -1:
-                        break
-
-                    # Extract and yield frame
-                    jpeg_frame = frame_buffer[start_idx:end_idx + 2]
-                    frame_buffer = frame_buffer[end_idx + 2:]
-
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + jpeg_frame + b'\r\n')
-
-                    frames_processed += 1
-                    # Small delay to prevent CPU spinning when processing frames
-                    time.sleep(0.001)
-
-        except Exception as e:
-            # Check if stream failed quickly (within 5 seconds) and add delay to prevent rapid restarts
-            current_time = time.time()
-            if current_time - last_restart_time < 5:
-                logger.warning("Stream failed quickly, adding delay before restart")
-                time.sleep(2)
-            last_restart_time = current_time
-
-            logger.error(f"Video stream error: {e}, falling back to still capture")
-            # Fallback to optimized still capture
+        while True:
+            process = None
             try:
-                frame_interval = 1.0 / settings['framerate']
+                # Try using rpicam-vid with MJPEG for better performance
+                # This keeps the camera initialized and streams continuously
                 cmd = [
-                    'rpicam-still',
+                    'rpicam-vid',
                     '--nopreview',
-                    '--immediate',
-                    '--timeout', '300',
+                    '--codec', 'mjpeg',
                     '--width', str(settings['width']),
                     '--height', str(settings['height']),
-                    '--quality', str(stream_quality),
+                    '--framerate', str(settings['framerate']),
+                    '--timeout', '0',  # Run indefinitely
+                    '--brightness', str(settings['brightness']),
+                    '--contrast', str(settings['contrast']),
+                    '--saturation', str(settings['saturation']),
+                    '--sharpness', str(settings['sharpness']),
                     '--exposure', settings['exposure'],
+                    '--metering', settings['metering'],
                     '--awb', settings['awb'],
-                    '-o', '-'
+                    '--rotation', str(settings['rotation']),
+                    '--quality', str(stream_quality),
+                    '-o', '-'  # Output to stdout
                 ]
-                
-                result = subprocess.run(cmd, capture_output=True, timeout=1)
-                if result.returncode == 0 and result.stdout:
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + result.stdout + b'\r\n')
-                time.sleep(frame_interval)
-            except Exception as e2:
-                logger.error(f"Fallback capture error: {e2}")
-                time.sleep(0.5)
-        finally:
-            if process:
+
+                # Add advanced settings
+                if settings['ev'] != 0:
+                    cmd.extend(['--ev', str(settings['ev'])])
+                if settings['shutter'] > 0:
+                    cmd.extend(['--shutter', str(settings['shutter'])])
+                if settings['gain'] > 0:
+                    cmd.extend(['--gain', str(settings['gain'])])
+                if settings['denoise'] != 'auto':
+                    cmd.extend(['--denoise', settings['denoise']])
+                if settings['hdr'] != 'off':
+                    cmd.extend(['--hdr', settings['hdr']])
+
+                if settings['hflip']:
+                    cmd.append('--hflip')
+                if settings['vflip']:
+                    cmd.append('--vflip')
+
+                # Start continuous video stream
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    bufsize=65536  # Use 64KB buffer instead of unbuffered
+                )
+
+                # Register as current camera process
+                global current_camera_process
+                with camera_process_lock:
+                    current_camera_process = process
+
+                # Parse MJPEG stream - MJPEG is a series of JPEG frames
+                frame_buffer = b''
+                jpeg_start = b'\xff\xd8'
+                jpeg_end = b'\xff\xd9'
+
+                while True:
+                    chunk = process.stdout.read(16384)  # Read larger chunks
+                    if not chunk:
+                        if process.poll() is not None:
+                            break
+                        time.sleep(0.01)
+                        continue
+
+                    frame_buffer += chunk
+
+                    # Extract complete JPEG frames
+                    # Process only one frame per chunk read to prevent CPU spinning
+                    frames_processed = 0
+                    while frames_processed < 1:  # Limit to 1 frame per iteration
+                        start_idx = frame_buffer.find(jpeg_start)
+                        if start_idx == -1:
+                            frame_buffer = frame_buffer[-2048:]  # Keep last 2KB
+                            break
+
+                        end_idx = frame_buffer.find(jpeg_end, start_idx + 2)
+                        if end_idx == -1:
+                            break
+
+                        # Extract and yield frame
+                        jpeg_frame = frame_buffer[start_idx:end_idx + 2]
+                        frame_buffer = frame_buffer[end_idx + 2:]
+
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' + jpeg_frame + b'\r\n')
+
+                        frames_processed += 1
+                        # Small delay to prevent CPU spinning when processing frames
+                        time.sleep(0.001)
+
+            except Exception as e:
+                # Check if stream failed quickly (within 5 seconds) and add delay to prevent rapid restarts
+                current_time = time.time()
+                if current_time - last_restart_time < 5:
+                    logger.warning("Stream failed quickly, adding delay before restart")
+                    time.sleep(2)
+                last_restart_time = current_time
+
+                logger.error(f"Video stream error: {e}, falling back to still capture")
+                # Fallback to optimized still capture
                 try:
-                    process.terminate()
-                    process.wait(timeout=1)
-                except:
-                    process.kill()
-                    process.wait()
+                    frame_interval = 1.0 / settings['framerate']
+                    cmd = [
+                        'rpicam-still',
+                        '--nopreview',
+                        '--immediate',
+                        '--timeout', '300',
+                        '--width', str(settings['width']),
+                        '--height', str(settings['height']),
+                        '--quality', str(stream_quality),
+                        '--exposure', settings['exposure'],
+                        '--awb', settings['awb'],
+                        '-o', '-'
+                    ]
+
+                    result = subprocess.run(cmd, capture_output=True, timeout=1)
+                    if result.returncode == 0 and result.stdout:
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' + result.stdout + b'\r\n')
+                    time.sleep(frame_interval)
+                except Exception as e2:
+                    logger.error(f"Fallback capture error: {e2}")
+                    time.sleep(0.5)
+            finally:
+                if process:
+                    try:
+                        process.terminate()
+                        process.wait(timeout=1)
+                    except:
+                        process.kill()
+                        process.wait()
+    finally:
+        # Always reset camera_running flag when stream ends
+        with camera_process_lock:
+            camera_running = False
+        logger.info("Camera stream ended, released camera lock")
 
 @app.route('/')
 def index():
