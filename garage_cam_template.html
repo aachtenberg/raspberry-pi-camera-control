@@ -827,12 +827,14 @@
             isPlaying = !isPlaying;
             const btn = document.getElementById('play-pause-btn');
             const video = document.getElementById('stream');
+            
             if (isPlaying) {
+                btn.innerHTML = ICONS.pause;
                 // If stream was fully stopped (src removed), re-init
                 if (!video.src && !hls) {
+                    console.log('Reinitializing stream after stop');
                     initHLSStream();
                 } else {
-                    btn.innerHTML = ICONS.pause;
                     if (hls) hls.startLoad();
                     video.play();
                 }
