@@ -1396,20 +1396,27 @@ def apply_settings():
     new_settings['height'] = validated_res['height']
     settings.update(new_settings)
 
-    # Smart restart logic:
-    # 1. If resolution or framerate changed -> Must restart everything (stop_camera_process)
-    # 2. If simple settings (brightness, etc) -> Can potentially update on-the-fly (not implemented yet for rpicam-vid)
-    #    For now, H.264 rpicam-vid needs restart for ALL parameter changes
+    # Determine if restart is needed
+    # Only restart for settings that require rpicam-vid restart
+    restart_required_settings = {
+        'width', 'height', 'framerate', 'vflip', 'hflip', 
+        'exposure', 'denoise', 'hdr', 'zoom'
+    }
     
-    # Check if this update requires a full stream restart (resolution/fps change)
-    # Note: Currently rpicam-vid requires restart for most changes anyway
+    # Check if any restart-required settings changed
+    needs_restart = any(key in new_settings for key in restart_required_settings)
     
-    stop_camera_process()
-    with camera_process_lock:
-        camera_running = False
-
-    # Start new stream in background
-    threading.Thread(target=start_stream, daemon=True).start()
+    if needs_restart:
+        logger.info(f"Camera restart required for settings: {list(set(new_settings.keys()) & restart_required_settings)}")
+        stop_camera_process()
+        with camera_process_lock:
+            camera_running = False
+        # Start new stream in background
+        threading.Thread(target=start_stream, daemon=True).start()
+    else:
+        logger.info(f"No restart needed for settings: {list(new_settings.keys())}")
+        # For settings that don't require restart (zoom, brightness, contrast, etc),
+        # just save them - they'll be picked up when stream restarts naturally
 
     response = {'status': 'ok', 'resolution': f"{validated_res['width']}x{validated_res['height']}"}
     if warning:

@@ -1233,12 +1233,32 @@
                     document.getElementById('contrast').value = settings.contrast || 0;
                     document.getElementById('saturation').value = settings.saturation || 0;
                     document.getElementById('brightness').value = settings.brightness || 0;
+                    document.getElementById('zoom').value = settings.zoom || 1.0;
+                    document.getElementById('framerate').value = settings.framerate || 15;
+                    document.getElementById('sharpness').value = settings.sharpness || 1.0;
+                    document.getElementById('ev').value = settings.ev || 0;
+                    document.getElementById('quality').value = settings.quality || 93;
+                    document.getElementById('snapshot_quality').value = settings.snapshot_quality || 100;
 
                     updateSlider('gain', settings.gain || 0);
                     updateSlider('shutter', document.getElementById('shutter').value);
                     updateSlider('contrast', settings.contrast || 0);
                     updateSlider('saturation', settings.saturation || 0);
                     updateSlider('brightness', settings.brightness || 0);
+                    updateSlider('zoom', settings.zoom || 1.0);
+                    updateSlider('framerate', settings.framerate || 15);
+                    updateSlider('sharpness', settings.sharpness || 1.0);
+                    updateSlider('ev', settings.ev || 0);
+                    updateSlider('quality', settings.quality || 93);
+                    updateSlider('snapshot_quality', settings.snapshot_quality || 100);
+
+                    // Load dropdowns
+                    if (settings.denoise) document.getElementById('denoise').value = settings.denoise;
+                    if (settings.hdr) document.getElementById('hdr').value = settings.hdr;
+                    if (settings.exposure) document.getElementById('exposure').value = settings.exposure;
+                    if (settings.metering) document.getElementById('metering').value = settings.metering;
+                    if (settings.awb) document.getElementById('awb').value = settings.awb;
+                    if (settings.rotation) document.getElementById('rotation').value = settings.rotation;
 
                     isLoadingSettings = false;  // Reset flag after loading
                 });
