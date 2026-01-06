@@ -1169,8 +1169,34 @@
         }
 
         function rebootDevice() {
-            if (confirm('Reboot device?')) {
-                showNotification('Reboot not implemented', 'warning');
+            if (confirm('Restart the camera service? The stream will be temporarily unavailable.')) {
+                const btn = event.target;
+                btn.disabled = true;
+                btn.textContent = 'Restarting...';
+                
+                fetch('/restart_service', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                }).then(response => response.json()).then(data => {
+                    if (data.status === 'ok') {
+                        showNotification('Camera service restarting...', 'success');
+                        // Wait for service to restart
+                        setTimeout(() => {
+                            btn.disabled = false;
+                            btn.textContent = 'Reboot Device';
+                            location.reload();
+                        }, 3000);
+                    } else {
+                        showNotification('Failed to restart service: ' + (data.error || 'Unknown error'), 'error');
+                        btn.disabled = false;
+                        btn.textContent = 'Reboot Device';
+                    }
+                }).catch(error => {
+                    showNotification('Restart failed: ' + error.message, 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Reboot Device';
+                    console.error('Reboot error:', error);
+                });
             }
         }
 

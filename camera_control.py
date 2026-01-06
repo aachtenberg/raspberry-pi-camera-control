@@ -1470,6 +1470,32 @@ def reset_settings():
     logger.info("Camera settings reset to defaults")
     return jsonify({'status': 'ok', 'message': 'Settings reset to defaults'})
 
+@app.route('/restart_service', methods=['POST'])
+def restart_service():
+    """Restart the camera service"""
+    global camera_running
+    
+    try:
+        logger.info("Restarting camera service...")
+        
+        # Stop the current stream
+        stop_camera_process()
+        with camera_process_lock:
+            camera_running = False
+        
+        # Wait a moment for cleanup
+        time.sleep(1)
+        
+        # Restart the stream
+        if use_hw_acceleration:
+            threading.Thread(target=start_h264_camera, daemon=True).start()
+        
+        logger.info("Camera service restart initiated")
+        return jsonify({'status': 'ok', 'message': 'Camera service restarting'})
+    except Exception as e:
+        logger.error(f"Error restarting camera service: {e}")
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
 if __name__ == '__main__':
     # Load saved settings on startup
     load_settings()
