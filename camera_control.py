@@ -53,6 +53,7 @@ def load_settings():
 
 # Default settings
 settings = {
+    'camera_name': 'Garage Cam',  # Camera display name
     'width': 1280,
     'height': 720,
     'framerate': 15,

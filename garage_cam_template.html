@@ -382,7 +382,7 @@
     <!-- Top Bar -->
     <div class="top-bar">
         <div class="top-left">
-            <div class="camera-name">• Garage Cam</div>
+            <div class="camera-name" id="camera-name">• Garage Cam</div>
             <div class="ip-address" id="ip-address">Loading...</div>
         </div>
         <div class="top-right">
@@ -628,6 +628,12 @@
             <!-- SYSTEM -->
             <div class="settings-section">
                 <h3>SYSTEM</h3>
+                <div class="slider-group" style="margin-bottom: 15px;">
+                    <div class="slider-label">
+                        <span>Camera Name</span>
+                    </div>
+                    <input type="text" id="camera_name_input" placeholder="Enter camera name" style="width: 100%; padding: 8px; background: #0a0a0a; color: #fff; border: 1px solid #1a1a1a; border-radius: 4px; font-size: 13px;" onchange="applyCameraName()">
+                </div>
                 <div class="system-info">
                     <div class="system-item">
                         <span>IP Address:</span>
@@ -887,17 +893,23 @@
             fetch('/settings')
                 .then(r => r.json())
                 .then(settings => {
+                    // Load camera name
+                    if (settings.camera_name) {
+                        document.getElementById('camera_name_input').value = settings.camera_name;
+                        document.getElementById('camera-name').textContent = '• ' + settings.camera_name;
+                    }
+
                     // Apply loaded settings to UI
                     const vflipToggle = document.querySelector('[onclick*="vflip"]');
                     const hflipToggle = document.querySelector('[onclick*="hflip"]');
                     const expToggle = document.querySelector('[onclick*="auto_exposure"]');
                     const awbToggle = document.querySelector('[onclick*="auto_wb"]');
-                    
+
                     if (settings.vflip && vflipToggle) vflipToggle.classList.add('active');
                     if (settings.hflip && hflipToggle) hflipToggle.classList.add('active');
                     if (settings.exposure === 'normal' && expToggle) expToggle.classList.add('active');
                     if (settings.awb === 'auto' && awbToggle) awbToggle.classList.add('active');
-                    
+
                     document.getElementById('gain').value = settings.gain || 0;
                     // Convert shutter from microseconds to UI scale (0-1200)
                     const shutterUi = settings.shutter ? Math.round(settings.shutter / 1000) : 0;
@@ -905,13 +917,34 @@
                     document.getElementById('contrast').value = settings.contrast || 0;
                     document.getElementById('saturation').value = settings.saturation || 0;
                     document.getElementById('brightness').value = settings.brightness || 0;
-                    
+
                     updateSlider('gain', settings.gain || 0);
                     updateSlider('shutter', document.getElementById('shutter').value);
                     updateSlider('contrast', settings.contrast || 0);
                     updateSlider('saturation', settings.saturation || 0);
                     updateSlider('brightness', settings.brightness || 0);
                 });
+        }
+
+        function applyCameraName() {
+            const cameraName = document.getElementById('camera_name_input').value;
+            if (!cameraName || cameraName.trim() === '') {
+                showNotification('Camera name cannot be empty', 'warning');
+                return;
+            }
+
+            fetch('/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ camera_name: cameraName })
+            }).then(response => response.json()).then(data => {
+                // Update the display
+                document.getElementById('camera-name').textContent = '• ' + cameraName;
+                showNotification('Camera name updated', 'success');
+            }).catch(error => {
+                showNotification('Failed to update camera name', 'error');
+                console.error('Camera name update error:', error);
+            });
         }
 
         function showNotification(message, type) {

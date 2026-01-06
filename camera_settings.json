@@ -1,11 +1,12 @@
 {
+  "camera_name": "Garage Cam",
   "width": 1280,
   "height": 720,
   "framerate": 15,
   "brightness": 0,
   "contrast": 1,
   "saturation": 1,
-  "sharpness": 1,
+  "sharpness": 2,
   "exposure": "normal",
   "metering": "centre",
   "awb": "auto",
