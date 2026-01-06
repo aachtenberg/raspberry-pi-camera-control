@@ -1,0 +1,19 @@
+[Unit]
+Description=Raspberry Pi Camera Control Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=aachten
+WorkingDirectory=/home/aachten/camera_control
+ExecStart=/usr/bin/python3 /home/aachten/camera_control/camera_control.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,22 @@
+{
+  "width": 1280,
+  "height": 720,
+  "framerate": 15,
+  "brightness": 0,
+  "contrast": 1,
+  "saturation": 1,
+  "sharpness": 1,
+  "exposure": "normal",
+  "metering": "centre",
+  "awb": "auto",
+  "rotation": 0,
+  "hflip": false,
+  "vflip": true,
+  "ev": 0,
+  "shutter": 0,
+  "gain": 0,
+  "denoise": "auto",
+  "hdr": "auto",
+  "quality": 93,
+  "snapshot_quality": 100
+}

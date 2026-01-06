@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Snapshots directory - don't commit images
+snapshots/
+
+# Local settings that may contain sensitive info
+*.local
+
+# OS files
+.DS_Store
+Thumbs.db

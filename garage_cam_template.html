@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Garage Cam</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Bar */
+        .top-bar {
+            background: #000000;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #0a0a0a;
+            z-index: 100;
+        }
+        .top-left {
+            display: flex;
+            flex-direction: column;
+        }
+        .camera-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .ip-address {
+            font-size: 12px;
+            color: #4A9EFF;
+            margin-top: 2px;
+        }
+        .top-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            font-size: 12px;
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: #888;
+        }
+        .status-icon {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #0a0a0a;
+        }
+        .settings-icon {
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+        .settings-icon:hover {
+            opacity: 1;
+        }
+
+        /* Main Video Area */
+        .video-container {
+            flex: 1;
+            background: #000;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        #stream {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .timestamp {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            font-size: 14px;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            z-index: 10;
+            backdrop-filter: blur(4px);
+        }
+
+        /* Bottom Controls */
+        .bottom-bar {
+            background: #000000;
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 30px;
+            border-top: 1px solid #0a0a0a;
+        }
+        .control-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: transparent;
+            color: #fff;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: scale(1.1);
+        }
+
+        /* Settings Panel */
+        .settings-panel {
+            position: fixed;
+            top: 0;
+            right: -400px;
+            width: 400px;
+            height: 100vh;
+            background: #050505;
+            box-shadow: -2px 0 20px rgba(0, 0, 0, 0.9);
+            transition: right 0.3s ease;
+            z-index: 1000;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .settings-panel.open {
+            right: 0;
+        }
+        .settings-header {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #0a0a0a;
+        }
+        .settings-header h2 {
+            font-size: 18px;
+            color: #fff;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 24px;
+            cursor: pointer;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+        }
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .settings-content {
+            padding: 20px;
+            flex: 1;
+        }
+        .settings-section {
+            margin-bottom: 30px;
+        }
+        .settings-section h3 {
+            font-size: 14px;
+            color: #444;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+            letter-spacing: 1px;
+            font-weight: 500;
+        }
+
+        /* Toggle Switches */
+        .toggle-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+        .toggle-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+        }
+        .toggle-label {
+            font-size: 14px;
+            color: #fff;
+        }
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 26px;
+            background: #0a0a0a;
+            border-radius: 13px;
+            cursor: pointer;
+            transition: background 0.3s;
+            border: 1px solid #1a1a1a;
+        }
+        .toggle-switch.active {
+            background: #2196F3;
+            border-color: #2196F3;
+        }
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #fff;
+            top: 2px;
+            left: 2px;
+            transition: left 0.3s;
+        }
+        .toggle-switch.active::after {
+            left: 26px;
+        }
+
+        /* Preset Button */
+        .preset-btn {
+            width: 100%;
+            padding: 12px;
+            background: #2196F3;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 25px;
+        }
+        .preset-btn:hover {
+            background: #1976D2;
+        }
+
+        /* Sliders */
+        .slider-group {
+            margin-bottom: 20px;
+        }
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 13px;
+            color: #aaa;
+        }
+        .slider-value {
+            color: #666;
+        }
+        input[type="range"] {
+            width: 100%;
+            height: 4px;
+            background: #0a0a0a;
+            border-radius: 2px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #2196F3;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #2196F3;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        select {
+            width: 100%;
+            padding: 8px;
+            background: #0a0a0a;
+            color: #fff;
+            border: 1px solid #1a1a1a;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        /* System Info */
+        .system-info {
+            padding: 12px;
+            background: #000000;
+            border: 1px solid #0a0a0a;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-bottom: 15px;
+        }
+        .system-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .system-item:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Action Buttons */
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .btn-reboot {
+            padding: 12px;
+            background: #2196F3;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-reset {
+            padding: 12px;
+            background: #F44336;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        /* Notification */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: white;
+            font-weight: bold;
+            z-index: 10000;
+            transform: translateX(400px);
+            transition: transform 0.3s ease;
+        }
+        .notification.show {
+            transform: translateX(0);
+        }
+        .notification.success {
+            background: #4CAF50;
+        }
+        .notification.warning {
+            background: #FF9800;
+        }
+        .notification.error {
+            background: #F44336;
+        }
+
+        @media (max-width: 768px) {
+            .settings-panel {
+                width: 100%;
+                right: -100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Top Bar -->
+    <div class="top-bar">
+        <div class="top-left">
+            <div class="camera-name">• Garage Cam</div>
+            <div class="ip-address" id="ip-address">Loading...</div>
+        </div>
+        <div class="top-right">
+            <div class="status-item">
+                <span class="status-icon"></span>
+                <span id="motion-status">0 Motion</span>
+            </div>
+            <div class="status-item">
+                <span class="status-icon"></span>
+                <span id="disk-status">Loading...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-icon"></span>
+                <span id="bandwidth-status">0 Kbps</span>
+            </div>
+            <svg class="settings-icon" onclick="toggleSettings()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3m15.364 6.364l-4.243-4.243m-4.242 0L5.636 17.364m12.728 0l-4.243-4.243m-4.242 0L5.636 6.636"></path>
+            </svg>
+        </div>
+    </div>
+
+    <!-- Main Video Area -->
+    <div class="video-container">
+        <div class="timestamp" id="timestamp"></div>
+        <img id="stream" src="/video_feed" alt="Camera feed">
+    </div>
+
+    <!-- Bottom Controls -->
+    <div class="bottom-bar">
+        <button class="control-btn" onclick="togglePlayPause()" id="play-pause-btn">⏸</button>
+        <button class="control-btn" onclick="takeSnapshot()" title="Take Picture">📷</button>
+        <button class="control-btn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
+    </div>
+
+    <!-- Settings Panel -->
+    <div class="settings-panel" id="settings-panel">
+        <div class="settings-header">
+            <h2>Settings</h2>
+            <button class="close-btn" onclick="toggleSettings()">×</button>
+        </div>
+        <div class="settings-content">
+            <!-- Feature Toggles -->
+            <div class="toggle-group">
+                <div class="toggle-item">
+                    <span class="toggle-label">Motion Detection</span>
+                    <div class="toggle-switch" onclick="toggleSwitch(this, 'motion')"></div>
+                </div>
+            </div>
+
+            <!-- Video Settings -->
+            <div class="settings-section">
+                <h3>VIDEO</h3>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Resolution</span>
+                    </div>
+                    <select id="resolution" onchange="applyResolution()">
+                        <option value="1920x1080">1920x1080 (Full HD)</option>
+                        <option value="1280x720" selected>1280x720 (HD)</option>
+                        <option value="640x480">640x480 (SD)</option>
+                    </select>
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Framerate</span>
+                        <span class="slider-value" id="framerate_val">15</span> fps
+                    </div>
+                    <input type="range" id="framerate" min="10" max="30" value="15" step="5" oninput="updateSlider('framerate', this.value)">
+                </div>
+            </div>
+
+            <!-- Dark Mode Preset -->
+            <button class="preset-btn" onclick="applyDarkModePreset()">Dark Mode Preset</button>
+
+            <!-- DARK ROOM TUNING -->
+            <div class="settings-section">
+                <h3>DARK ROOM TUNING</h3>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Gain (0-6)</span>
+                        <span class="slider-value" id="gain_val">0</span>
+                    </div>
+                    <input type="range" id="gain" min="0" max="6" value="0" step="0.1" oninput="updateSlider('gain', this.value)">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Exposure (0-1200)</span>
+                        <span class="slider-value" id="shutter_val">0</span>
+                    </div>
+                    <input type="range" id="shutter" min="0" max="1200" value="0" step="10" oninput="updateSlider('shutter', this.value)">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Contrast (-2 to 2)</span>
+                        <span class="slider-value" id="contrast_val">0</span>
+                    </div>
+                    <input type="range" id="contrast" min="-2" max="2" value="0" step="0.1" oninput="updateSlider('contrast', this.value)">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Saturation (-2 to 2)</span>
+                        <span class="slider-value" id="saturation_val">0</span>
+                    </div>
+                    <input type="range" id="saturation" min="-2" max="2" value="0" step="0.1" oninput="updateSlider('saturation', this.value)">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Sharpness (0-16)</span>
+                        <span class="slider-value" id="sharpness_val">1.0</span>
+                    </div>
+                    <input type="range" id="sharpness" min="0" max="16" value="1" step="0.5" oninput="updateSlider('sharpness', this.value)">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>EV Compensation (-10 to 10)</span>
+                        <span class="slider-value" id="ev_val">0</span>
+                    </div>
+                    <input type="range" id="ev" min="-10" max="10" value="0" step="0.5" oninput="updateSlider('ev', this.value)">
+                </div>
+            </div>
+
+            <!-- ADVANCED -->
+            <div class="settings-section">
+                <h3>ADVANCED</h3>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Denoise</span>
+                    </div>
+                    <select id="denoise" onchange="applyDropdown('denoise', this.value)">
+                        <option value="auto" selected>Auto</option>
+                        <option value="off">Off</option>
+                        <option value="cdn_off">CDN Off</option>
+                        <option value="cdn_fast">CDN Fast</option>
+                        <option value="cdn_hq">CDN High Quality</option>
+                    </select>
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>HDR Mode</span>
+                    </div>
+                    <select id="hdr" onchange="applyDropdown('hdr', this.value)">
+                        <option value="off" selected>Off</option>
+                        <option value="auto">Auto</option>
+                        <option value="sensor">Sensor</option>
+                        <option value="single-exp">Single Exposure</option>
+                    </select>
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>JPEG Quality</span>
+                        <span class="slider-value" id="quality_val">93</span>%
+                    </div>
+                    <input type="range" id="quality" min="1" max="100" value="93" step="1" oninput="updateSlider('quality', this.value)">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Snapshot Quality</span>
+                        <span class="slider-value" id="snapshot_quality_val">100</span>%
+                    </div>
+                    <input type="range" id="snapshot_quality" min="80" max="100" value="100" step="5" oninput="updateSlider('snapshot_quality', this.value)">
+                </div>
+            </div>
+
+            <!-- IMAGE -->
+            <div class="settings-section">
+                <h3>IMAGE</h3>
+                <div class="toggle-group">
+                    <div class="toggle-item">
+                        <span class="toggle-label">Auto Exposure</span>
+                        <div class="toggle-switch active" onclick="toggleSwitch(this, 'auto_exposure')"></div>
+                    </div>
+                    <div class="toggle-item">
+                        <span class="toggle-label">Auto White Balance</span>
+                        <div class="toggle-switch active" onclick="toggleSwitch(this, 'auto_wb')"></div>
+                    </div>
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Brightness</span>
+                        <span class="slider-value" id="brightness_val">0</span>
+                    </div>
+                    <input type="range" id="brightness" min="-1" max="1" value="0" step="0.1" oninput="updateSlider('brightness', this.value)">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Exposure Mode</span>
+                    </div>
+                    <select id="exposure" onchange="applyDropdown('exposure', this.value)">
+                        <option value="normal" selected>Normal</option>
+                        <option value="sport">Sport</option>
+                    </select>
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Metering</span>
+                    </div>
+                    <select id="metering" onchange="applyDropdown('metering', this.value)">
+                        <option value="centre" selected>Centre</option>
+                        <option value="spot">Spot</option>
+                        <option value="average">Average</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>White Balance</span>
+                    </div>
+                    <select id="awb" onchange="applyDropdown('awb', this.value)">
+                        <option value="auto" selected>Auto</option>
+                        <option value="incandescent">Incandescent</option>
+                        <option value="tungsten">Tungsten</option>
+                        <option value="fluorescent">Fluorescent</option>
+                        <option value="indoor">Indoor</option>
+                        <option value="daylight">Daylight</option>
+                        <option value="cloudy">Cloudy</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Rotation</span>
+                    </div>
+                    <select id="rotation" onchange="applyDropdown('rotation', this.value)">
+                        <option value="0" selected>0°</option>
+                        <option value="90">90°</option>
+                        <option value="180">180°</option>
+                        <option value="270">270°</option>
+                    </select>
+                </div>
+                <div class="toggle-group">
+                    <div class="toggle-item">
+                        <span class="toggle-label">V-Flip</span>
+                        <div class="toggle-switch" onclick="toggleSwitch(this, 'vflip')"></div>
+                    </div>
+                    <div class="toggle-item">
+                        <span class="toggle-label">H-Mirror</span>
+                        <div class="toggle-switch" onclick="toggleSwitch(this, 'hflip')"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SYSTEM -->
+            <div class="settings-section">
+                <h3>SYSTEM</h3>
+                <div class="system-info">
+                    <div class="system-item">
+                        <span>IP Address:</span>
+                        <span id="system-ip">Loading...</span>
+                    </div>
+                    <div class="system-item">
+                        <span>SD Card:</span>
+                        <span id="system-disk">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+                <button class="btn-reboot" onclick="rebootDevice()">Reboot Device</button>
+                <button class="btn-reset" onclick="resetCameraSettings()">Reset Camera Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isPlaying = true;
+        let settingsOpen = false;
+
+        // Load system info on page load
+        window.onload = function() {
+            loadSystemInfo();
+            updateTimestamp();
+            setInterval(updateTimestamp, 1000);
+            loadSettings();
+        };
+
+        function loadSystemInfo() {
+            fetch('/system_info')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('ip-address').textContent = data.ip;
+                    document.getElementById('system-ip').textContent = data.ip;
+                    document.getElementById('disk-status').textContent = data.disk;
+                    document.getElementById('system-disk').textContent = data.disk;
+                    document.getElementById('bandwidth-status').textContent = (data.bandwidth || 0).toFixed(2) + ' Kbps';
+                });
+        }
+
+        function updateTimestamp() {
+            const now = new Date();
+            const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            const ampm = now.getHours() >= 12 ? 'pm' : 'am';
+            const dayName = days[now.getDay()];
+            document.getElementById('timestamp').textContent = `${year}/${month}/${day} ${hours}:${minutes}:${seconds} ${ampm} ${dayName}`;
+        }
+
+        function toggleSettings() {
+            settingsOpen = !settingsOpen;
+            document.getElementById('settings-panel').classList.toggle('open', settingsOpen);
+        }
+
+        function togglePlayPause() {
+            isPlaying = !isPlaying;
+            const btn = document.getElementById('play-pause-btn');
+            const stream = document.getElementById('stream');
+            if (isPlaying) {
+                btn.textContent = '⏸';
+                stream.src = '/video_feed?' + new Date().getTime();
+            } else {
+                btn.textContent = '▶';
+            }
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function toggleSwitch(element, setting) {
+            element.classList.toggle('active');
+            const isActive = element.classList.contains('active');
+            
+            // Handle different toggle types
+            if (setting === 'vflip' || setting === 'hflip') {
+                applySetting(setting, isActive);
+            } else if (setting === 'auto_exposure') {
+                applyDropdown('exposure', isActive ? 'normal' : 'sport');
+            } else if (setting === 'auto_wb') {
+                applyDropdown('awb', isActive ? 'auto' : 'daylight');
+            } else if (setting === 'motion') {
+                // Not implemented yet - just visual feedback
+                showNotification('Motion detection feature coming soon', 'info');
+            }
+        }
+
+        function updateSlider(id, value) {
+            const valueEl = document.getElementById(id + '_val');
+            if (valueEl) {
+                // Format display value
+                if (id === 'quality' || id === 'snapshot_quality') {
+                    valueEl.textContent = value + '%';
+                } else if (id === 'framerate') {
+                    valueEl.textContent = value;
+                } else {
+                    valueEl.textContent = value;
+                }
+            }
+            
+            // Apply setting immediately
+            const settingMap = {
+                'gain': 'gain',
+                'shutter': 'shutter',
+                'contrast': 'contrast',
+                'saturation': 'saturation',
+                'brightness': 'brightness',
+                'sharpness': 'sharpness',
+                'ev': 'ev',
+                'framerate': 'framerate',
+                'quality': 'quality',
+                'snapshot_quality': 'snapshot_quality'
+            };
+
+            if (settingMap[id]) {
+                applySetting(settingMap[id], parseFloat(value));
+            }
+        }
+
+        function applySetting(key, value) {
+            const settings = {};
+            
+            // Convert UI values to backend format
+            if (key === 'shutter') {
+                // UI shows 0-1200 scale (likely milliseconds), convert to microseconds
+                // Map 0-1200 range to 0-1200000 microseconds (0 to 1.2 seconds)
+                settings[key] = Math.round(value * 1000);
+            } else {
+                settings[key] = value;
+            }
+            
+            fetch('/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(settings)
+            }).then(() => {
+                const img = document.getElementById('stream');
+                img.src = '/video_feed?' + new Date().getTime();
+            });
+        }
+
+        function applyDropdown(key, value) {
+            const settings = {};
+            if (key === 'rotation') {
+                settings[key] = parseInt(value);
+            } else {
+                settings[key] = value;
+            }
+            
+            fetch('/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(settings)
+            }).then(() => {
+                const img = document.getElementById('stream');
+                img.src = '/video_feed?' + new Date().getTime();
+            });
+        }
+
+        function applyResolution() {
+            const res = document.getElementById('resolution').value.split('x');
+            const settings = {
+                width: parseInt(res[0]),
+                height: parseInt(res[1])
+            };
+            
+            fetch('/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(settings)
+            }).then(() => {
+                const img = document.getElementById('stream');
+                img.src = '/video_feed?' + new Date().getTime();
+                showNotification(`Resolution changed to ${res[0]}x${res[1]}`, 'success');
+            });
+        }
+
+        function takeSnapshot() {
+            fetch('/snapshot', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification('Picture saved: ' + data.filename, 'success');
+                        const link = document.createElement('a');
+                        link.href = data.url;
+                        link.download = data.filename;
+                        link.click();
+                    }
+                });
+        }
+
+        function applyDarkModePreset() {
+            // Apply dark room optimized settings - send all at once
+            const presetSettings = {
+                gain: 2.0,
+                shutter: 200000,  // 200ms in microseconds
+                contrast: 0.5
+            };
+            
+            fetch('/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(presetSettings)
+            }).then(() => {
+                // Update UI sliders
+                document.getElementById('gain').value = 2;
+                document.getElementById('shutter').value = 200;  // UI shows 0-1200 scale
+                document.getElementById('contrast').value = 0.5;
+                updateSlider('gain', 2);
+                updateSlider('shutter', 200);
+                updateSlider('contrast', 0.5);
+                
+                const img = document.getElementById('stream');
+                img.src = '/video_feed?' + new Date().getTime();
+                showNotification('Dark Mode Preset Applied', 'success');
+            });
+        }
+
+        function rebootDevice() {
+            if (confirm('Reboot device?')) {
+                showNotification('Reboot not implemented', 'warning');
+            }
+        }
+
+        function resetCameraSettings() {
+            if (confirm('Reset all camera settings to defaults?')) {
+                fetch('/apply', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        width: 1280, height: 720, framerate: 15,
+                        brightness: 0, contrast: 1, saturation: 1,
+                        sharpness: 1, exposure: 'normal', metering: 'centre',
+                        awb: 'auto', rotation: 0, hflip: false, vflip: false,
+                        ev: 0, shutter: 0, gain: 0, denoise: 'auto', hdr: 'off', quality: 93
+                    })
+                }).then(() => {
+                    location.reload();
+                });
+            }
+        }
+
+        function loadSettings() {
+            fetch('/settings')
+                .then(r => r.json())
+                .then(settings => {
+                    // Apply loaded settings to UI
+                    const vflipToggle = document.querySelector('[onclick*="vflip"]');
+                    const hflipToggle = document.querySelector('[onclick*="hflip"]');
+                    const expToggle = document.querySelector('[onclick*="auto_exposure"]');
+                    const awbToggle = document.querySelector('[onclick*="auto_wb"]');
+                    
+                    if (settings.vflip && vflipToggle) vflipToggle.classList.add('active');
+                    if (settings.hflip && hflipToggle) hflipToggle.classList.add('active');
+                    if (settings.exposure === 'normal' && expToggle) expToggle.classList.add('active');
+                    if (settings.awb === 'auto' && awbToggle) awbToggle.classList.add('active');
+                    
+                    document.getElementById('gain').value = settings.gain || 0;
+                    // Convert shutter from microseconds to UI scale (0-1200)
+                    const shutterUi = settings.shutter ? Math.round(settings.shutter / 1000) : 0;
+                    document.getElementById('shutter').value = Math.min(shutterUi, 1200);
+                    document.getElementById('contrast').value = settings.contrast || 0;
+                    document.getElementById('saturation').value = settings.saturation || 0;
+                    document.getElementById('brightness').value = settings.brightness || 0;
+                    
+                    updateSlider('gain', settings.gain || 0);
+                    updateSlider('shutter', document.getElementById('shutter').value);
+                    updateSlider('contrast', settings.contrast || 0);
+                    updateSlider('saturation', settings.saturation || 0);
+                    updateSlider('brightness', settings.brightness || 0);
+                });
+        }
+
+        function showNotification(message, type) {
+            const notif = document.createElement('div');
+            notif.className = `notification ${type}`;
+            notif.textContent = message;
+            document.body.appendChild(notif);
+            setTimeout(() => notif.classList.add('show'), 10);
+            setTimeout(() => {
+                notif.classList.remove('show');
+                setTimeout(() => notif.remove(), 300);
+            }, 3000);
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', e => {
+            if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+            if (e.key === 'Escape' && settingsOpen) toggleSettings();
+        });
+    </script>
+</body>
+</html>
+'''
