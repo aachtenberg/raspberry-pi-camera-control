@@ -1156,6 +1156,50 @@ def apply_settings():
 
     return jsonify(response)
 
+@app.route('/reset', methods=['POST'])
+def reset_settings():
+    """Reset all settings to defaults"""
+    global camera_running
+
+    # Default settings
+    default_settings = {
+        'camera_name': 'Garage Cam',
+        'width': 1280,
+        'height': 720,
+        'framerate': 15,
+        'brightness': 0.0,
+        'contrast': 1.0,
+        'saturation': 1.0,
+        'sharpness': 1.0,
+        'exposure': 'normal',
+        'metering': 'centre',
+        'awb': 'auto',
+        'rotation': 0,
+        'hflip': False,
+        'vflip': False,
+        'ev': 0,
+        'shutter': 0,
+        'gain': 0,
+        'denoise': 'auto',
+        'hdr': 'off',
+        'quality': 93,
+        'snapshot_quality': 100
+    }
+
+    # Update runtime settings
+    settings.update(default_settings)
+
+    # Stop camera and reset flag
+    stop_camera_process()
+    with camera_process_lock:
+        camera_running = False
+
+    # Save to disk
+    save_settings()
+
+    logger.info("Camera settings reset to defaults")
+    return jsonify({'status': 'ok', 'message': 'Settings reset to defaults'})
+
 if __name__ == '__main__':
     # Load saved settings on startup
     load_settings()

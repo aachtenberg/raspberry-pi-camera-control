@@ -989,19 +989,19 @@
         }
 
         function resetCameraSettings() {
-            if (confirm('Reset all camera settings to defaults?')) {
-                fetch('/apply', {
+            if (confirm('Reset all camera settings to defaults? This will save defaults to disk and reload the page.')) {
+                fetch('/reset', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        width: 1280, height: 720, framerate: 15,
-                        brightness: 0, contrast: 1, saturation: 1,
-                        sharpness: 1, exposure: 'normal', metering: 'centre',
-                        awb: 'auto', rotation: 0, hflip: false, vflip: false,
-                        ev: 0, shutter: 0, gain: 0, denoise: 'auto', hdr: 'off', quality: 93
-                    })
-                }).then(() => {
-                    location.reload();
+                    headers: {'Content-Type': 'application/json'}
+                }).then(response => response.json()).then(data => {
+                    showNotification('Settings reset to defaults', 'success');
+                    // Wait a moment before reloading to ensure settings are saved
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1000);
+                }).catch(error => {
+                    showNotification('Failed to reset settings', 'error');
+                    console.error('Reset error:', error);
                 });
             }
         }
