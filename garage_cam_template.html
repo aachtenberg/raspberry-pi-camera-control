@@ -90,7 +90,7 @@
         }
         .timestamp {
             position: absolute;
-            top: 15px;
+            bottom: 15px;
             left: 15px;
             font-size: 14px;
             color: #fff;
@@ -807,7 +807,6 @@
 
         function updateTimestamp() {
             const now = new Date();
-            const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
             const year = now.getFullYear();
             const month = String(now.getMonth() + 1).padStart(2, '0');
             const day = String(now.getDate()).padStart(2, '0');
@@ -815,8 +814,7 @@
             const minutes = String(now.getMinutes()).padStart(2, '0');
             const seconds = String(now.getSeconds()).padStart(2, '0');
             const ampm = now.getHours() >= 12 ? 'pm' : 'am';
-            const dayName = days[now.getDay()];
-            document.getElementById('timestamp').textContent = `${year}/${month}/${day} ${hours}:${minutes}:${seconds} ${ampm} ${dayName}`;
+            document.getElementById('timestamp').textContent = `${year}/${month}/${day} ${hours}:${minutes}:${seconds} ${ampm}`;
         }
 
         function toggleSettings() {
