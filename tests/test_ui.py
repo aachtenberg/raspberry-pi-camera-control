@@ -6,15 +6,8 @@ import pytest
 from playwright.sync_api import Page, expect
 import time
 
-# Test configuration
-BASE_URL = "http://192.168.0.169:5000"  # Update this to your Pi's IP
+# Test configuration - will be overridden by --base-url command line arg
 TIMEOUT = 10000  # 10 seconds
-
-
-@pytest.fixture(scope="session")
-def base_url():
-    """Base URL for the camera control interface"""
-    return BASE_URL
 
 
 class TestPageLayout:
