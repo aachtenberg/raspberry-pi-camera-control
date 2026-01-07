@@ -76,6 +76,25 @@ http://192.168.0.169:5000
 
 ## Service Management
 
+## Secret scanning / Pre-commit hooks 🔒
+We use `pre-commit` + `detect-secrets` to prevent accidental commits of secrets.
+
+Quick setup for developers:
+
+```bash
+# Install tools (do this in your dev environment)
+python3 -m pip install --user pre-commit detect-secrets
+
+# Generate baseline (only needed once, review and commit output):
+detect-secrets scan > .secrets.baseline
+
+# Install git hooks
+pre-commit install
+```
+
+The repository includes `.pre-commit-config.yaml` and a `.secrets.baseline` file. If you add a new secret intentionally (e.g. CI helper key), add it to the baseline after review using `detect-secrets audit`.
+
+
 ```bash
 # Check status
 sudo systemctl status camera-control
