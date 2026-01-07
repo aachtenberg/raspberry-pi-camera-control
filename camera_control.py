@@ -1508,7 +1508,7 @@ if __name__ == '__main__':
         time.sleep(1)  # Give camera time to initialize
 
     logger.info("Starting camera control interface...")
-    logger.info("Access at: http://192.168.0.169:5000")
+    logger.info("Access at: http://<your-pi-ip>:5000 (replace with your host IP)")
     logger.info(f"Hardware acceleration: {'enabled (H.264)' if use_hw_acceleration else 'disabled (MJPEG)'}")
 
     app.run(host='0.0.0.0', port=5000, threaded=True)

@@ -35,7 +35,7 @@ A web-based camera control interface for Raspberry Pi Camera 3 with hardware-acc
          ▼
 ┌─────────────────┐
 │  Flask Server   │  Serve web UI and HLS stream
-│   Port 5000     │  http://192.168.0.169:5000
+│   Port 5000     │  http://<PI_HOST>:5000
 └────────┬────────┘
          │
          ▼
@@ -63,7 +63,7 @@ This checks and installs:
 ```
 
 This will:
-- Copy all files to `/home/aachten/camera_control/`
+- Copy all files to `/home/<user>/camera_control/` (or set `REMOTE_DIR` in `deploy_to_pi.sh`)
 - Install/update the systemd service
 - Restart the camera-control service
 - Show service status
@@ -71,7 +71,7 @@ This will:
 ### 3. Access Web Interface
 Open in your browser:
 ```
-http://192.168.0.169:5000
+http://<PI_HOST>:5000
 ```
 
 ## Service Management
@@ -181,18 +181,15 @@ Tested configuration:
 ### No video in browser
 1. Check if HLS segments are being created:
    ```bash
-   ssh aachten@192.168.0.169 'ls -lh /home/aachten/camera_control/hls_segments/'
-   ```
+   ssh <user>@<host> 'ls -lh /home/<user>/camera_control/hls_segments/'
 
 2. Check if processes are running:
    ```bash
-   ssh aachten@192.168.0.169 'ps aux | grep -E "(rpicam-vid|ffmpeg)"'
-   ```
+   ssh <user>@<host> 'ps aux | grep -E "(rpicam-vid|ffmpeg)"'
 
 3. Check service logs:
    ```bash
-   ssh aachten@192.168.0.169 'sudo journalctl -u camera-control -f'
-   ```
+   ssh <user>@<host> 'sudo journalctl -u camera-control -f'
 
 ### Zombie processes
 Fixed! The new implementation uses:

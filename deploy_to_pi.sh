@@ -3,9 +3,10 @@
 # Deploy Camera Control to Raspberry Pi
 # Usage: ./deploy_to_pi.sh
 
-PI_USER="aachten"
-PI_HOST="192.168.0.169"
-REMOTE_DIR="/home/aachten/camera_control"
+# Set these (or export PI_USER and PI_HOST in your environment)
+PI_USER="${PI_USER:-pi}"
+PI_HOST="${PI_HOST:-<PI_HOST>}"
+REMOTE_DIR="/home/${PI_USER}/camera_control"
 
 echo "🚀 Deploying Camera Control to Pi..."
 
@@ -39,7 +40,7 @@ echo "📊 Service status:"
 ssh ${PI_USER}@${PI_HOST} "sudo systemctl status camera-control --no-pager -l | head -20"
 
 echo ""
-echo "🌐 Access camera at: http://192.168.0.169:5000"
+echo "🌐 Access camera at: http://${PI_HOST}:5000"
 echo ""
 echo "📝 View logs with:"
 echo "   ssh ${PI_USER}@${PI_HOST} 'sudo journalctl -u camera-control -f'"

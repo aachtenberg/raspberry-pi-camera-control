@@ -2,8 +2,9 @@
 
 # Check and install dependencies for H.264 HLS streaming
 
-PI_USER="aachten"
-PI_HOST="192.168.0.169"
+# Set these (or export PI_USER and PI_HOST in your environment)
+PI_USER="${PI_USER:-pi}"
+PI_HOST="${PI_HOST:-<PI_HOST>}"
 
 echo "🔍 Checking dependencies on Raspberry Pi..."
 
