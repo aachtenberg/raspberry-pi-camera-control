@@ -11,6 +11,13 @@ A web-based camera control interface for Raspberry Pi Camera 3 with hardware-acc
 ✅ **Systemd Service** - Runs reliably as a background service  
 ✅ **No Zombie Processes** - Proper subprocess management prevents defunct processes  
 
+## Recent Changes ✅
+- Snapshot fixes: snapshots now temporarily pause the stream, capture with `rpicam-still`, then automatically restart; snapshot auto-download works in the UI. 📸
+- Reboot implemented: **Reboot Device** button now restarts the camera service and shows a full-screen "Rebooting..." overlay. 🔁
+- UI & UX improvements: play/pause fixes (resume after Stop), snapshot button preserves icon while disabled, timestamp moved to bottom-left. 🎛️
+- Resolution guidance: HD modes restored (1080p/720p) with a recommendation to use lower resolutions on Pi Zero 2 W for stability. ⚠️
+
+
 ## Architecture
 
 ```
@@ -127,8 +134,9 @@ sudo systemctl start camera-control
 ## Camera Settings
 
 Adjust via web interface:
-- **Resolution**: 640x480, 1280x720, 1920x1080
-- **Framerate**: 10-30 fps
+- **Resolution**: 1920x1080 (1080p), 1280x720 (720p), 640x480 (VGA), 320x240 (QVGA). Note: higher resolutions may be unstable on Pi Zero 2 W — use lower resolutions for reliability.
+- **Framerate**: 3-120 fps (higher framerates available at lower resolutions). For Pi Zero 2 W we recommend **5–15 fps** for stable streaming.
+- **Snapshot**: Captures high-quality stills by pausing the stream, then auto-downloads the JPEG. (Exclusive camera access is required.)
 - **Brightness**: -1.0 to 1.0
 - **Contrast**: 0 to 2.0
 - **Saturation**: 0 to 2.0
