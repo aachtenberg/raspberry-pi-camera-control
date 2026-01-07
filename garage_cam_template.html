@@ -32,9 +32,16 @@
             flex-direction: column;
         }
         .camera-name {
-            font-size: 16px;
+            font-size: 32px;
             font-weight: 600;
             color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .camera-name .status-icon {
+            width: 20px;
+            height: 20px;
         }
         .ip-address {
             font-size: 12px;
@@ -58,6 +65,16 @@
             height: 16px;
             border-radius: 50%;
             background: #0a0a0a;
+            transition: background-color 0.3s ease;
+        }
+        .status-icon.status-ok {
+            background: #4CAF50;
+        }
+        .status-icon.status-error {
+            background: #F44336;
+        }
+        .status-icon.status-stopped {
+            background: #FFFFFF;
         }
         .settings-icon {
             width: 24px;
@@ -390,7 +407,10 @@
     <!-- Top Bar -->
     <div class="top-bar">
         <div class="top-left">
-            <div class="camera-name" id="camera-name">• Garage Cam</div>
+            <div class="camera-name">
+                <span class="status-icon status-ok" id="camera-status-icon"></span>
+                <span id="camera-name">Garage Cam</span>
+            </div>
             <div class="ip-address" id="ip-address">Loading...</div>
         </div>
         <div class="top-right">
@@ -406,9 +426,14 @@
                 <span class="status-icon"></span>
                 <span id="bandwidth-status">0 Kbps</span>
             </div>
-            <svg class="settings-icon" onclick="toggleSettings()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3m15.364 6.364l-4.243-4.243m-4.242 0L5.636 17.364m12.728 0l-4.243-4.243m-4.242 0L5.636 6.636"></path>
+            <div class="status-item">
+                <span class="status-icon"></span>
+                <span id="hdr-status">HDR: Off</span>
+            </div>
+            <svg class="settings-icon" onclick="toggleSettings()" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="5" r="2"/>
+                <circle cx="12" cy="12" r="2"/>
+                <circle cx="12" cy="19" r="2"/>
             </svg>
         </div>
     </div>
@@ -484,11 +509,6 @@
                     <input type="range" id="framerate" min="3" max="15" value="5" step="1" oninput="updateSlider('framerate', this.value)">
                 </div>
             </div>
-
-            <!-- Presets -->
-            <button class="preset-btn" onclick="applyDaytimePreset()" style="background: #FFC107;">Daytime Preset</button>
-            <button class="preset-btn" onclick="applyDarkModePreset()" style="margin-top: 10px;">Dark Mode Preset</button>
-            <button class="preset-btn" onclick="applyPerformancePreset()" style="background: #FF9800; margin-top: 10px;">Performance Mode</button>
 
             <!-- DARK ROOM TUNING -->
             <div class="settings-section">
@@ -657,6 +677,11 @@
                 </div>
             </div>
 
+            <!-- Presets -->
+            <button class="preset-btn" onclick="applyDaytimePreset()" style="background: #FFC107;">Daytime Preset</button>
+            <button class="preset-btn" onclick="applyDarkModePreset()" style="margin-top: 10px;">Dark Mode Preset</button>
+            <button class="preset-btn" onclick="applyPerformancePreset()" style="background: #FF9800; margin-top: 10px;">Performance Mode</button>
+
             <!-- SYSTEM -->
             <div class="settings-section">
                 <h3>SYSTEM</h3>
@@ -698,6 +723,24 @@
         let settingsDebounceTimer = null;  // Timer for debouncing setting changes
         let hls = null;  // HLS.js instance
 
+        // Update camera status icon
+        function updateCameraStatus(status) {
+            const icon = document.getElementById('camera-status-icon');
+            if (!icon) return;
+            
+            // Remove all status classes
+            icon.classList.remove('status-ok', 'status-error', 'status-stopped');
+            
+            // Add the appropriate class
+            if (status === 'ok') {
+                icon.classList.add('status-ok');
+            } else if (status === 'error') {
+                icon.classList.add('status-error');
+            } else if (status === 'stopped') {
+                icon.classList.add('status-stopped');
+            }
+        }
+
         // Initialize HLS video stream
         function initHLSStream() {
             const video = document.getElementById('stream');
@@ -730,10 +773,12 @@
                     video.play().catch(e => {
                         console.log('Autoplay failed, user interaction required');
                     });
+                    updateCameraStatus('ok');
                 });
                 
                 hls.on(Hls.Events.ERROR, function (event, data) {
                     if (data.fatal) {
+                        updateCameraStatus('error');
                         switch(data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
                                 console.log('Network error, retrying in 2 seconds...');
@@ -759,9 +804,11 @@
                 video.src = hlsUrl;
                 video.addEventListener('loadedmetadata', function() {
                     video.play();
+                    updateCameraStatus('ok');
                 });
                 video.addEventListener('error', function() {
                     console.log('Video error, retrying in 3 seconds...');
+                    updateCameraStatus('error');
                     setTimeout(initHLSStream, 3000);
                 });
             }
@@ -791,6 +838,7 @@
             loadSystemInfo();
             updateTimestamp();
             setInterval(updateTimestamp, 1000);
+            setInterval(loadSystemInfo, 2000);  // Update system info every 2 seconds
             loadSettings();
         };
 
@@ -830,16 +878,18 @@
             
             if (isPlaying) {
                 btn.innerHTML = ICONS.pause;
-                // If stream was fully stopped (src removed), re-init
-                if (!video.src && !hls) {
+                updateCameraStatus('ok');
+                // If stream was fully stopped (src removed or hls destroyed), re-init
+                if (!hls || !video.src) {
                     console.log('Reinitializing stream after stop');
                     initHLSStream();
                 } else {
                     if (hls) hls.startLoad();
-                    video.play();
+                    video.play().catch(e => console.log('Play failed:', e));
                 }
             } else {
                 btn.innerHTML = ICONS.play;
+                updateCameraStatus('stopped');
                 video.pause();
             }
         }
@@ -856,6 +906,7 @@
             video.load();   // Force clear
             
             isPlaying = false;
+            updateCameraStatus('stopped');
             document.getElementById('play-pause-btn').innerHTML = ICONS.play;
         }
 
@@ -975,6 +1026,9 @@
                 clearTimeout(settingsDebounceTimer);
             }
 
+            // Check if this setting requires stream restart
+            const restartRequired = ['rotation'].includes(key);
+
             // Dropdowns don't need as much delay (immediate selection)
             settingsDebounceTimer = setTimeout(() => {
                 const settings = {};
@@ -984,13 +1038,80 @@
                     settings[key] = value;
                 }
 
+                if (restartRequired) {
+                    stopStream();
+                    updateCameraStatus('stopped');
+                    
+                    // Show loading overlay
+                    const overlay = document.createElement('div');
+                    overlay.id = 'loading-overlay';
+                    overlay.style.cssText = `
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: rgba(0, 0, 0, 0.85);
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: center;
+                        align-items: center;
+                        z-index: 9999;
+                    `;
+                    
+                    const spinner = document.createElement('div');
+                    spinner.style.cssText = `
+                        width: 50px;
+                        height: 50px;
+                        border: 5px solid rgba(255, 255, 255, 0.2);
+                        border-top-color: #4A9EFF;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    `;
+                    
+                    const message = document.createElement('div');
+                    message.style.cssText = `
+                        color: #fff;
+                        font-size: 18px;
+                        font-weight: 500;
+                        margin-top: 20px;
+                    `;
+                    message.textContent = `Rotating camera to ${value}°...`;
+                    
+                    overlay.appendChild(spinner);
+                    overlay.appendChild(message);
+                    document.body.appendChild(overlay);
+                    
+                    // Add spinner animation if not already present
+                    if (!document.getElementById('spinner-style')) {
+                        const style = document.createElement('style');
+                        style.id = 'spinner-style';
+                        style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+                        document.head.appendChild(style);
+                    }
+                    
+                    showNotification(`Rotating camera to ${value}°...`, 'info');
+                }
+
                 fetch('/apply', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(settings)
                 }).then(() => {
-                    // Settings applied - no need to reload stream
-                    // Camera updates settings without restarting
+                    // Update HDR status in real-time if HDR changed
+                    if (key === 'hdr') {
+                        updateHDRStatus(value);
+                    }
+                    
+                    if (restartRequired) {
+                        // Wait for camera to restart and create initial segments
+                        setTimeout(() => {
+                            const overlay = document.getElementById('loading-overlay');
+                            if (overlay) overlay.remove();
+                            initHLSStream();
+                            showNotification(`Camera rotated to ${value}°`, 'success');
+                        }, 3000);
+                    }
                 });
             }, 300);  // Shorter delay for dropdowns
         }
@@ -1253,7 +1374,7 @@
                     // Load camera name
                     if (settings.camera_name) {
                         document.getElementById('camera_name_input').value = settings.camera_name;
-                        document.getElementById('camera-name').textContent = '• ' + settings.camera_name;
+                        document.getElementById('camera-name').textContent = settings.camera_name;
                     }
 
                     // Set Resolution Dropdown
@@ -1304,7 +1425,10 @@
 
                     // Load dropdowns
                     if (settings.denoise) document.getElementById('denoise').value = settings.denoise;
-                    if (settings.hdr) document.getElementById('hdr').value = settings.hdr;
+                    if (settings.hdr) {
+                        document.getElementById('hdr').value = settings.hdr;
+                        updateHDRStatus(settings.hdr);
+                    }
                     if (settings.exposure) document.getElementById('exposure').value = settings.exposure;
                     if (settings.metering) document.getElementById('metering').value = settings.metering;
                     if (settings.awb) document.getElementById('awb').value = settings.awb;
@@ -1312,6 +1436,15 @@
 
                     isLoadingSettings = false;  // Reset flag after loading
                 });
+        }
+
+        function updateHDRStatus(hdrValue) {
+            const hdrStatus = document.getElementById('hdr-status');
+            if (hdrStatus) {
+                const statusText = hdrValue === 'off' ? 'HDR: Off' : `HDR: ${hdrValue.charAt(0).toUpperCase() + hdrValue.slice(1)}`;
+                hdrStatus.textContent = statusText;
+                hdrStatus.style.color = hdrValue === 'off' ? '#888' : '#4A9EFF';
+            }
         }
 
         function applyCameraName() {
@@ -1327,7 +1460,7 @@
                 body: JSON.stringify({ camera_name: cameraName })
             }).then(response => response.json()).then(data => {
                 // Update the display
-                document.getElementById('camera-name').textContent = '• ' + cameraName;
+                document.getElementById('camera-name').textContent = cameraName;
                 showNotification('Camera name updated', 'success');
             }).catch(error => {
                 showNotification('Failed to update camera name', 'error');

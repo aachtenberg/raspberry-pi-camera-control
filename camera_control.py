@@ -5,6 +5,7 @@ import sys
 import logging
 import json
 import os
+import shutil
 from flask import Flask, render_template_string, request, jsonify, Response, send_from_directory
 import threading
 import time
@@ -29,6 +30,14 @@ camera_running = False
 use_hw_acceleration = True  # Use H.264 hardware encoding
 h264_stderr = None  # Keep file handle alive to prevent zombie process
 ffmpeg_stderr = None  # Keep file handle alive to prevent zombie process
+
+# Bandwidth tracking
+bandwidth_lock = threading.Lock()
+bandwidth_data = {
+    'last_check_time': 0,
+    'last_total_bytes': 0,
+    'current_kbps': 0
+}
 
 # Directories
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'camera_settings.json')
@@ -113,6 +122,47 @@ def validate_resolution(width, height):
             break
 
     return fallback, f"Resolution {width}x{height} not supported, falling back to {fallback['name']}"
+
+def calculate_bandwidth():
+    """Calculate current bandwidth from HLS segments"""
+    global bandwidth_data
+    
+    try:
+        current_time = time.time()
+        total_bytes = 0
+        
+        # Sum up size of all current HLS segment files
+        if os.path.exists(HLS_DIR):
+            for file in os.listdir(HLS_DIR):
+                if file.endswith('.ts'):
+                    file_path = os.path.join(HLS_DIR, file)
+                    try:
+                        total_bytes += os.path.getsize(file_path)
+                    except:
+                        pass
+        
+        with bandwidth_lock:
+            # Calculate bandwidth if we have a previous measurement
+            if bandwidth_data['last_check_time'] > 0:
+                time_diff = current_time - bandwidth_data['last_check_time']
+                if time_diff > 0:
+                    bytes_diff = total_bytes - bandwidth_data['last_total_bytes']
+                    # Convert to Kbps: (bytes * 8 bits/byte) / (time_diff seconds) / 1000
+                    kbps = (bytes_diff * 8) / (time_diff * 1000)
+                    # Smooth the value with exponential moving average
+                    if bandwidth_data['current_kbps'] > 0:
+                        bandwidth_data['current_kbps'] = 0.7 * bandwidth_data['current_kbps'] + 0.3 * kbps
+                    else:
+                        bandwidth_data['current_kbps'] = kbps
+            
+            # Update tracking data
+            bandwidth_data['last_check_time'] = current_time
+            bandwidth_data['last_total_bytes'] = total_bytes
+            
+            return bandwidth_data['current_kbps']
+    except Exception as e:
+        logger.error(f"Error calculating bandwidth: {e}")
+        return 0
 
 HTML_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'garage_cam_template.html')
 
@@ -858,7 +908,11 @@ def start_h264_camera():
     except Exception as e:
         logger.error(f"Error cleaning HLS directory: {e}")
 
-    # Use simpler H.264 encoding - output to TCP without listen mode
+    rotation = int(settings.get('rotation', 0))
+    needs_transpose = rotation in (90, 270)
+    transpose_filter = 'transpose=1' if rotation == 90 else 'transpose=2'
+
+    # Use simpler H.264 encoding - output to stdout
     cmd = [
         'rpicam-vid',
         '--nopreview',
@@ -874,10 +928,13 @@ def start_h264_camera():
         '--exposure', settings['exposure'],
         '--metering', settings['metering'],
         '--awb', settings['awb'],
-        '--rotation', str(settings['rotation']),
         '--inline',  # Inline headers for streaming
         '-o', '-'  # Output to stdout for piping
     ]
+
+    # rpicam-vid cannot rotate 90/270 with H.264; offload to ffmpeg when needed
+    if not needs_transpose and rotation != 0:
+        cmd.extend(['--rotation', str(rotation)])
 
     # Add advanced settings BEFORE building full command
     if settings['ev'] != 0:
@@ -912,14 +969,31 @@ def start_h264_camera():
         '-loglevel', 'warning',
         '-f', 'h264',
         '-i', '-',  # Read raw H.264 from stdin
-        '-c:v', 'copy',
+    ]
+
+    if needs_transpose:
+        # Decode, rotate, and re-encode when 90/270 is requested
+        # Use software x264 for reliability (still lightweight at 720p/10-15fps)
+        ffmpeg_cmd.extend([
+            '-vf', transpose_filter,
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-tune', 'zerolatency',
+            '-pix_fmt', 'yuv420p',
+            '-x264-params', 'keyint=30:min-keyint=30:scenecut=0'
+        ])
+    else:
+        # Zero-copy when no rotation transpose is needed
+        ffmpeg_cmd.extend(['-c:v', 'copy'])
+
+    ffmpeg_cmd.extend([
         '-f', 'hls',
         '-hls_time', '2',
         '-hls_list_size', '10',
         '-hls_flags', 'delete_segments+append_list',
         '-hls_segment_filename', os.path.join(HLS_DIR, 'segment_%03d.ts'),
         os.path.join(HLS_DIR, 'stream.m3u8')
-    ]
+    ])
 
     # Combine commands with pipe - AFTER all rpicam-vid args are added
     full_cmd = ' '.join(cmd) + ' | ' + ' '.join(ffmpeg_cmd)
@@ -1261,8 +1335,8 @@ def get_system_info():
     except:
         disk_info = "Unknown"
     
-    # Calculate bandwidth (placeholder - would need actual network monitoring)
-    bandwidth_kbps = 0  # TODO: Implement actual bandwidth calculation
+    # Calculate actual bandwidth from HLS segments
+    bandwidth_kbps = calculate_bandwidth()
     
     return jsonify({
         'ip': ip_address,
@@ -1399,8 +1473,8 @@ def apply_settings():
     # Determine if restart is needed
     # Only restart for settings that require rpicam-vid restart
     restart_required_settings = {
-        'width', 'height', 'framerate', 'vflip', 'hflip', 
-        'exposure', 'denoise', 'hdr', 'zoom'
+        'width', 'height', 'framerate', 'vflip', 'hflip',
+        'rotation', 'exposure', 'denoise', 'hdr', 'zoom'
     }
     
     # Check if any restart-required settings changed
