@@ -1,0 +1,15 @@
+# Test dependencies for Raspberry Pi Camera Control
+
+# Core testing framework
+pytest>=8.0.0
+pytest-playwright>=0.4.0
+
+# Browser automation
+playwright>=1.40.0
+
+# Test reporting
+pytest-html>=4.1.0
+pytest-cov>=4.1.0
+
+# Async testing support
+pytest-asyncio>=0.23.0

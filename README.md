@@ -231,6 +231,73 @@ Fixed! The new implementation uses:
 - Reduce framerate (10 fps)
 - Adjust HLS segment duration in `run_ffmpeg_hls_converter()`
 
+## Testing
+
+### UI End-to-End Tests
+
+Comprehensive browser-based UI tests using Playwright to verify all functionality:
+
+#### Quick Start
+```bash
+cd tests
+./run_tests.sh
+```
+
+#### Test Coverage
+- ✅ Page layout and structure
+- ✅ All UI elements (buttons, dropdowns, sliders)
+- ✅ Settings panel open/close
+- ✅ Camera controls (play/pause, stop, snapshot)
+- ✅ Video stream initialization
+- ✅ Status indicators (bandwidth, HDR, status circle)
+- ✅ Rotation with loading overlay
+- ✅ Real-time updates (timestamp, bandwidth)
+- ✅ Responsive design (mobile/tablet viewports)
+- ✅ API endpoint responses
+
+#### Running Tests
+
+**Basic usage:**
+```bash
+cd tests
+./run_tests.sh
+```
+
+**See browser window (headed mode):**
+```bash
+./run_tests.sh --headed
+```
+
+**Quick tests only (skip slow tests):**
+```bash
+./run_tests.sh --quick
+```
+
+**Custom Pi IP address:**
+```bash
+PI_IP=192.168.1.100 ./run_tests.sh
+```
+
+**Verbose output:**
+```bash
+./run_tests.sh -vv
+```
+
+#### Test Reports
+After running tests, an HTML report is generated: `tests/test-report.html`
+
+#### Requirements
+- Python 3.9+
+- Chromium browser (auto-installed by Playwright)
+- Camera service running on Pi
+
+The test script automatically:
+1. Creates a virtual environment
+2. Installs dependencies (pytest, playwright)
+3. Installs Chromium browser
+4. Runs all tests against your Pi
+5. Generates an HTML report
+
 ## Credits
 
 Built for Pi Zero 2 W with Camera 3
