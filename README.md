@@ -2,6 +2,35 @@
 
 A web-based camera control interface for Raspberry Pi Camera 3 with hardware-accelerated H.264 streaming.
 
+## Hardware Compatibility
+
+**Tested on**: Raspberry Pi Zero 2 W  
+**Should work on**: Any Raspberry Pi with camera support (Pi 3, Pi 4, Pi 5, etc.)
+
+### OS Compatibility
+
+✅ **Raspberry Pi OS Lite (64-bit) - RECOMMENDED**
+- Tested on: Debian GNU/Linux 13 (trixie), kernel 6.12.47+rpt-rpi-v8
+- All camera features work out of the box
+- Hardware H.264 encoding fully supported
+- rpicam-apps work without any configuration
+
+⚠️ **DietPi - NOT COMPATIBLE**
+
+DietPi has a critical compatibility issue with `rpicam-apps` (including `rpicam-vid` used by this project):
+
+**The Issue**: rpicam-apps performs platform detection by checking for V4L2 video devices (`/dev/video*`) with the card name `bcm2835-isp` or `pispbe`. These devices are created by the Raspberry Pi's Image Signal Processor (ISP) driver. DietPi's kernel configuration does not include these ISP drivers, causing rpicam-apps to fail platform detection and refuse to run.
+
+**Why This Happens**: 
+- rpicam-apps source code (options.cpp#L163-L189, rpicam_app.cpp#L78-L102) explicitly checks for these V4L2 devices
+- This is an intentional design decision to ensure rpicam-apps runs only on proper Raspberry Pi hardware with correct ISP drivers
+- DietPi is a third-party OS not officially supported by the Raspberry Pi Foundation
+- The rpicam-apps developers state "contributions for other platforms are welcome", indicating this is by design
+
+**Workaround**: None. Use Raspberry Pi OS Lite instead.
+
+**Recommendation**: Install **Raspberry Pi OS Lite (64-bit)** for immediate compatibility without any platform detection issues.
+
 ## Features
 
 ✅ **H.264 Hardware Acceleration** - Uses rpicam-vid with hardware H.264 encoding  
