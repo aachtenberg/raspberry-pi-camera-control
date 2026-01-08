@@ -9,6 +9,7 @@ import shutil
 from flask import Flask, render_template_string, request, jsonify, Response, send_from_directory
 import threading
 import time
+import paho.mqtt.client as mqtt
 
 # Configure logging for service operation
 logging.basicConfig(
@@ -116,7 +117,13 @@ settings = {
     'hdr': 'off',  # HDR mode
     'quality': 93,  # JPEG quality (1-100)
     'snapshot_quality': 100,  # Snapshot JPEG quality (80-100)
-    'zoom': 1.0  # Digital zoom (1.0 = no zoom, max depends on user preference)
+    'zoom': 1.0,  # Digital zoom (1.0 = no zoom, max depends on user preference)
+    'mqtt_enabled': True,
+    'mqtt_broker': 'localhost',
+    'mqtt_port': 1883,
+    'mqtt_user': '',
+    'mqtt_password': '',
+    'mqtt_base_topic': 'surveillance'
 }
 
 # Supported resolutions with fallback priorities (higher index = higher priority)
@@ -295,6 +302,14 @@ HTML = '''
             background: rgba(0, 0, 0, 0.9);
             border-color: #777;
         }
+        #mqtt-status {
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-size: 14px;
+        }
         .fullscreen-btn {
             font-size: 16px;
         }
@@ -431,13 +446,14 @@ HTML = '''
     </style>
 </head>
 <body>
-    <h1>🎥 picamctl</h1>
+    <h1 id="title">🎥 picamctl</h1>
     
     <div class="container">
         <div class="video-container">
             <div class="video-controls">
                 <button class="toggle-controls-btn" onclick="toggleControls()" title="Toggle Controls (T)">⚙️</button>
                 <button class="fullscreen-btn" onclick="toggleFullscreen()" title="Full Screen (F)">⛶</button>
+                <span id="mqtt-status">MQTT: --</span>
             </div>
             <img id="stream" src="/video_feed" alt="Loading camera feed...">
         </div>
@@ -577,6 +593,37 @@ HTML = '''
                     <label><input type="checkbox" id="vflip"> Vertical</label>
                 </div>
             </div>
+
+            <h2>MQTT Settings</h2>
+            
+            <div class="control">
+                <label><input type="checkbox" id="mqtt_enabled"> Enable MQTT</label>
+            </div>
+            
+            <div class="control">
+                <label>Broker Host:</label>
+                <input type="text" id="mqtt_broker" value="localhost">
+            </div>
+            
+            <div class="control">
+                <label>Broker Port: <span class="value" id="mqtt_port_val">1883</span></label>
+                <input type="range" id="mqtt_port" min="1" max="65535" value="1883" step="1">
+            </div>
+            
+            <div class="control">
+                <label>Username:</label>
+                <input type="text" id="mqtt_user" value="">
+            </div>
+            
+            <div class="control">
+                <label>Password:</label>
+                <input type="password" id="mqtt_password" value="">
+            </div>
+            
+            <div class="control">
+                <label>Base Topic:</label>
+                <input type="text" id="mqtt_base_topic" value="surveillance">
+            </div>
             
             <button onclick="applySettings()">Apply Settings</button>
             <button onclick="takeSnapshot()" style="background: #2196F3; margin-left: 10px;">📸 Take Picture</button>
@@ -638,6 +685,15 @@ HTML = '''
             document.getElementById('quality').value = settings.quality || 93;
             document.getElementById('snapshot_quality').value = settings.snapshot_quality || 100;
             document.getElementById('snapshot_quality_val').textContent = (settings.snapshot_quality || 100) + '%';
+
+            // MQTT settings
+            document.getElementById('mqtt_enabled').checked = settings.mqtt_enabled || false;
+            document.getElementById('mqtt_broker').value = settings.mqtt_broker || 'localhost';
+            document.getElementById('mqtt_port').value = settings.mqtt_port || 1883;
+            document.getElementById('mqtt_port_val').textContent = settings.mqtt_port || 1883;
+            document.getElementById('mqtt_user').value = settings.mqtt_user || '';
+            document.getElementById('mqtt_password').value = settings.mqtt_password || '';
+            document.getElementById('mqtt_base_topic').value = settings.mqtt_base_topic || 'surveillance';
         }
 
         function updateValueDisplay(input) {
@@ -648,6 +704,8 @@ HTML = '''
                 displayValue = input.value == 0 ? 'Auto' : input.value;
             } else if (input.id === 'quality' || input.id === 'snapshot_quality') {
                 displayValue = input.value + '%';
+            } else if (input.id === 'mqtt_port') {
+                displayValue = input.value;
             }
             document.getElementById(input.id + '_val').textContent = displayValue;
         }
@@ -680,7 +738,13 @@ HTML = '''
                 denoise: document.getElementById('denoise').value,
                 hdr: document.getElementById('hdr').value,
                 quality: parseInt(document.getElementById('quality').value),
-                snapshot_quality: parseInt(document.getElementById('snapshot_quality').value)
+                snapshot_quality: parseInt(document.getElementById('snapshot_quality').value),
+                mqtt_enabled: document.getElementById('mqtt_enabled').checked,
+                mqtt_broker: document.getElementById('mqtt_broker').value,
+                mqtt_port: parseInt(document.getElementById('mqtt_port').value),
+                mqtt_user: document.getElementById('mqtt_user').value,
+                mqtt_password: document.getElementById('mqtt_password').value,
+                mqtt_base_topic: document.getElementById('mqtt_base_topic').value
             };
             
             // Save to localStorage for persistence
@@ -873,6 +937,47 @@ HTML = '''
                 setTimeout(() => notification.remove(), 300);
             }, 4000);
         }
+
+        function updateMqttStatus() {
+            fetch('/system_info')
+                .then(response => response.json())
+                .then(data => {
+                    const statusElem = document.getElementById('mqtt-status');
+                    if (statusElem) {
+                        statusElem.textContent = `MQTT: ${data.mqtt_connected ? 'Connected' : 'Disconnected'}`;
+                        statusElem.style.background = data.mqtt_connected ? 'rgba(76, 175, 80, 0.7)' : 'rgba(244, 67, 54, 0.7)';
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to fetch system info:', error);
+                });
+        }
+
+        function updateSystemInfo() {
+            fetch('/system_info')
+                .then(response => response.json())
+                .then(data => {
+                    const titleElem = document.getElementById('title');
+                    const mqttStatus = data.mqtt_connected 
+                        ? '<span style="color:green;font-size:1.2em;">●</span> connected' 
+                        : '<span style="color:gray;font-size:1.2em;">●</span> disconnected';
+                    titleElem.innerHTML = `🎥 picamctl - addr: ${data.ip} mqtt: ${mqttStatus}`;
+                    
+                    const statusElem = document.getElementById('mqtt-status');
+                    if (statusElem) {
+                        statusElem.textContent = `MQTT: ${data.mqtt_connected ? 'Connected' : 'Disconnected'}`;
+                        statusElem.style.background = data.mqtt_connected ? 'rgba(76, 175, 80, 0.7)' : 'rgba(244, 67, 54, 0.7)';
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to fetch system info:', error);
+                });
+        }
+
+        // Update system info every 5 seconds
+        setInterval(updateSystemInfo, 5000);
+        // Initial update
+        updateSystemInfo();
 
         // Note: Settings are now loaded from server on page load (see window.onload above)
         // localStorage is still used to preserve UI state between page refreshes
@@ -1567,33 +1672,38 @@ def get_system_info():
     import socket
     import shutil
     
-    # Get IP address
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip_address = s.getsockname()[0]
-        s.close()
-    except:
-        ip_address = "Unknown"
-    
-    # Get disk usage
-    try:
-        total, used, free = shutil.disk_usage("/")
-        total_mb = total // (1024 * 1024)
-        used_mb = used // (1024 * 1024)
-        disk_info = f"{used_mb:.1f}MB / {total_mb:.1f}MB"
-    except:
-        disk_info = "Unknown"
-    
-    # Calculate actual bandwidth from HLS segments
-    bandwidth_kbps = calculate_bandwidth()
-    
-    return jsonify({
-        'ip': ip_address,
-        'disk': disk_info,
-        'bandwidth': bandwidth_kbps,
-        'vlc_stream_running': (streaming_mode == 'vlc')
-    })
+        # Get IP address
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip_address = s.getsockname()[0]
+            s.close()
+        except:
+            ip_address = "Unknown"
+        
+        # Get disk usage
+        try:
+            total, used, free = shutil.disk_usage("/")
+            total_mb = total // (1024 * 1024)
+            used_mb = used // (1024 * 1024)
+            disk_info = f"{used_mb:.1f}MB / {total_mb:.1f}MB"
+        except:
+            disk_info = "Unknown"
+        
+        # Calculate actual bandwidth from HLS segments
+        bandwidth_kbps = calculate_bandwidth()
+        
+        return jsonify({
+            'ip': ip_address,
+            'disk': disk_info,
+            'bandwidth': bandwidth_kbps,
+            'vlc_stream_running': (streaming_mode == 'vlc'),
+            'mqtt_connected': mqtt_connected
+        })
+    except Exception as e:
+        logger.error(f"Error in /system_info: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/stop_vlc_mode', methods=['POST'])
@@ -1694,6 +1804,7 @@ def take_snapshot():
 
         if result.returncode == 0 and os.path.exists(filepath):
             logger.info(f"Snapshot saved: {filepath}")
+            publish_event("snapshot_taken", "info")
 
             # Return success with filename
             return jsonify({
@@ -1704,10 +1815,12 @@ def take_snapshot():
                 'timestamp': timestamp
             })
         else:
-            logger.error(f"Snapshot failed: {result.stderr.decode() if result.stderr else 'Unknown error'}")
+            error_msg = result.stderr.decode() if result.stderr else 'Unknown error'
+            logger.error(f"Snapshot failed: {error_msg}")
+            publish_event("snapshot_failed", "error")
             return jsonify({
                 'success': False,
-                'error': f'Camera error: {result.stderr.decode() if result.stderr else "Unknown error"}'
+                'error': f'Camera error: {error_msg}'
             }), 500
 
     except subprocess.TimeoutExpired:
@@ -1762,6 +1875,16 @@ def apply_settings():
     # Check if any restart-required settings changed
     needs_restart = any(key in new_settings for key in restart_required_settings)
     
+    # If MQTT settings changed, reinitialize MQTT
+    mqtt_settings = {'mqtt_enabled', 'mqtt_broker', 'mqtt_port', 'mqtt_user', 'mqtt_password', 'mqtt_base_topic'}
+    mqtt_changed = any(key in new_settings for key in mqtt_settings)
+    if mqtt_changed:
+        logger.info("MQTT settings changed - reinitializing MQTT client")
+        if mqtt_client:
+            mqtt_client.disconnect()
+            mqtt_client.loop_stop()
+        init_mqtt()
+
     if needs_restart:
         logger.info(f"Camera restart required for settings: {list(set(new_settings.keys()) & restart_required_settings)}")
         stop_camera_process()
@@ -1769,6 +1892,10 @@ def apply_settings():
             camera_running = False
         # Start new stream in background
         threading.Thread(target=start_stream, daemon=True).start()
+    # Publish settings change event if any changes were made
+    if new_settings:
+        publish_event("settings_changed", "info")
+
     else:
         logger.info(f"No restart needed for settings: {list(new_settings.keys())}")
         # Settings are already saved above
@@ -1866,4 +1993,173 @@ if __name__ == '__main__':
     logger.info("Access at: http://<your-pi-ip>:5000 (replace with your host IP)")
     logger.info(f"Hardware acceleration: {'enabled (H.264)' if use_hw_acceleration else 'disabled (MJPEG)'}")
 
-    app.run(host='0.0.0.0', port=5000, threaded=True)
+    # MQTT globals
+mqtt_client = None
+mqtt_connected = False
+mqtt_reconnect_interval = 5  # seconds
+mqtt_last_reconnect = 0
+
+# Publishing intervals
+MQTT_STATUS_INTERVAL = 30  # seconds
+MQTT_METRICS_INTERVAL = 60  # seconds
+last_status_publish = 0
+last_metrics_publish = 0
+
+# App start time for uptime
+app_start_time = time.time()
+
+def on_mqtt_connect(client, userdata, flags, rc):
+    global mqtt_connected
+    if rc == 0:
+        mqtt_connected = True
+        logger.info("MQTT connected successfully")
+        publish_event("device_boot", "info")
+    else:
+        mqtt_connected = False
+        logger.error(f"MQTT connection failed with code {rc}")
+
+def on_mqtt_disconnect(client, userdata, rc):
+    global mqtt_connected
+    mqtt_connected = False
+    logger.warning(f"MQTT disconnected (code {rc}), will attempt reconnect")
+
+def init_mqtt():
+    global mqtt_client
+    if not settings.get('mqtt_enabled', False):
+        logger.info("MQTT disabled in settings")
+        return
+
+    mqtt_client = mqtt.Client(client_id=settings['camera_name'])
+    mqtt_client.on_connect = on_mqtt_connect
+    mqtt_client.on_disconnect = on_mqtt_disconnect
+
+    if settings['mqtt_user']:
+        mqtt_client.username_pw_set(settings['mqtt_user'], settings['mqtt_password'])
+
+    try:
+        mqtt_client.connect(settings['mqtt_broker'], settings['mqtt_port'], keepalive=60)
+        mqtt_client.loop_start()
+        logger.info("MQTT client initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize MQTT: {e}")
+
+def reconnect_mqtt():
+    global mqtt_last_reconnect
+    current_time = time.time()
+    if current_time - mqtt_last_reconnect >= mqtt_reconnect_interval:
+        logger.info("Attempting MQTT reconnect...")
+        try:
+            mqtt_client.reconnect()
+            mqtt_last_reconnect = current_time
+        except Exception as e:
+            logger.error(f"MQTT reconnect failed: {e}")
+
+# In main - after load_settings()
+init_mqtt()
+
+# Add background thread for reconnection handling
+def mqtt_monitor():
+    while True:
+        if settings.get('mqtt_enabled', False) and not mqtt_connected:
+            reconnect_mqtt()
+        time.sleep(1)
+
+threading.Thread(target=mqtt_monitor, daemon=True).start()
+
+def get_uptime():
+    """Get system uptime in seconds"""
+    with open('/proc/uptime', 'r') as f:
+        return float(f.readline().split()[0])
+
+def format_uptime(seconds):
+    """Format uptime as human-readable string"""
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    return f"{days}d {hours}h {minutes}m {secs}s"
+
+def get_topic(suffix):
+    """Build device-specific topic"""
+    return f"{settings['mqtt_base_topic']}/{settings['camera_name']}/{suffix}"
+
+def publish_mqtt(topic, payload, retain=False):
+    """Publish to MQTT if connected"""
+    if mqtt_client and mqtt_connected:
+        try:
+            result = mqtt_client.publish(topic, json.dumps(payload), retain=retain)
+            if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                logger.warning(f"Failed to publish to {topic}")
+        except Exception as e:
+            logger.error(f"Publish error: {e}")
+
+def publish_status():
+    """Publish camera status"""
+    uptime_secs = int(get_uptime())
+    
+    # Get IP address for status
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip_address = s.getsockname()[0]
+        s.close()
+    except:
+        ip_address = "unknown"
+    
+    payload = {
+        "device": settings['camera_name'],
+        "uptime_seconds": uptime_secs,
+        "uptime": format_uptime(uptime_secs),
+        "resolution": f"{settings['width']}x{settings['height']}",
+        "framerate": settings['framerate'],
+        "camera_ready": camera_running,
+        "ip": ip_address,
+        "timestamp": int(time.time())
+    }
+    publish_mqtt(get_topic("status"), payload, retain=True)
+
+def publish_metrics():
+    """Publish camera metrics"""
+    bandwidth_kbps = calculate_bandwidth()
+    payload = {
+        "bandwidth_kbps": round(bandwidth_kbps, 2),
+        "uptime_seconds": int(get_uptime()),
+        "timestamp": int(time.time())
+    }
+    publish_mqtt(get_topic("metrics"), payload, retain=True)
+
+def publish_event(event_type, severity):
+    """Publish event"""
+    payload = {
+        "event": event_type,
+        "severity": severity,
+        "timestamp": int(time.time())
+    }
+    publish_mqtt(get_topic("events"), payload)
+
+# Background publishing thread
+def mqtt_publisher():
+    global last_status_publish, last_metrics_publish
+    while True:
+        current_time = time.time()
+        if settings.get('mqtt_enabled', False) and mqtt_connected:
+            if current_time - last_status_publish >= MQTT_STATUS_INTERVAL:
+                publish_status()
+                last_status_publish = current_time
+            if current_time - last_metrics_publish >= MQTT_METRICS_INTERVAL:
+                publish_metrics()
+                last_metrics_publish = current_time
+        time.sleep(1)
+
+threading.Thread(target=mqtt_publisher, daemon=True).start()
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Not found'}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({'error': 'Internal server error'}), 500
+
+app.run(host='0.0.0.0', port=5000, threaded=True)
