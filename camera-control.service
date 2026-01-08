@@ -5,9 +5,9 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/camera_control
-ExecStart=/usr/bin/python3 /home/pi/camera_control/camera_control.py
+User=aachten
+WorkingDirectory=/home/aachten/camera_control
+ExecStart=/usr/bin/python3 /home/aachten/camera_control/camera_control.py
 Restart=always
 RestartSec=5
 StandardOutput=journal

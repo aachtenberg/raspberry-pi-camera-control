@@ -458,6 +458,11 @@
                 <circle cx="12" cy="12" r="3.2"/>
             </svg>
         </button>
+        <button class="control-btn" onclick="toggleVLCStream()" id="vlc-btn" title="VLC Stream (Low Latency)">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+            </svg>
+        </button>
         <button class="control-btn" onclick="toggleFullscreen()" title="Fullscreen">
             <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
         </button>
@@ -851,6 +856,12 @@
                     document.getElementById('disk-status').textContent = data.disk;
                     document.getElementById('system-disk').textContent = data.disk;
                     document.getElementById('bandwidth-status').textContent = (data.bandwidth || 0).toFixed(2) + ' Kbps';
+                    
+                    // Update VLC button state
+                    const vlcBtn = document.getElementById('vlc-btn');
+                    if (vlcBtn) {
+                        vlcBtn.style.color = data.vlc_stream_running ? '#4A9EFF' : '#fff';
+                    }
                 });
         }
 
@@ -915,6 +926,131 @@
                 document.documentElement.requestFullscreen();
             } else {
                 document.exitFullscreen();
+            }
+        }
+
+        function toggleVLCStream() {
+            const btn = document.getElementById('vlc-btn');
+            
+            fetch('/vlc/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.running) {
+                        // Stop VLC stream
+                        fetch('/vlc/stop', { method: 'POST' })
+                            .then(response => response.json())
+                            .then(result => {
+                                if (result.success) {
+                                    btn.style.color = '#fff';
+                                    showNotification('VLC stream stopped', 'info');
+                                }
+                            });
+                    } else {
+                        // Start VLC stream and show URL
+                        fetch('/vlc/start', { method: 'POST' })
+                            .then(response => response.json())
+                            .then(result => {
+                                if (result.success) {
+                                    btn.style.color = '#4A9EFF';
+                                    const streamUrl = `http://${window.location.hostname}:${window.location.port}/stream.h264`;
+                                    showVLCModal(streamUrl);
+                                }
+                            });
+                    }
+                });
+        }
+
+        function showVLCModal(streamUrl) {
+            // Create modal overlay
+            const modal = document.createElement('div');
+            modal.id = 'vlc-modal';
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.9);
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                z-index: 10000;
+                padding: 20px;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: #1a1a1a;
+                border: 1px solid #333;
+                border-radius: 8px;
+                padding: 30px;
+                max-width: 600px;
+                width: 100%;
+            `;
+            
+            content.innerHTML = `
+                <h2 style="color: #fff; margin-top: 0;">VLC Stream Ready</h2>
+                <p style="color: #aaa; margin-bottom: 20px;">Low latency H.264 stream (~200-500ms delay)</p>
+                
+                <div style="margin-bottom: 20px;">
+                    <label style="color: #888; font-size: 13px; display: block; margin-bottom: 8px;">Stream URL:</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="vlc-url-input" value="${streamUrl}" readonly
+                            style="flex: 1; padding: 10px; background: #0a0a0a; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 13px;">
+                        <button onclick="copyVLCUrl()" style="padding: 10px 20px; background: #2196F3; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                            Copy
+                        </button>
+                    </div>
+                </div>
+                
+                <div style="background: #0a0a0a; border: 1px solid #333; border-radius: 4px; padding: 15px; margin-bottom: 20px;">
+                    <p style="color: #aaa; font-size: 13px; margin: 0 0 10px 0; font-weight: 500;">To view in VLC:</p>
+                    <ol style="color: #888; font-size: 13px; margin: 0; padding-left: 20px; line-height: 1.6;">
+                        <li>Open VLC Media Player</li>
+                        <li>Click Media → Open Network Stream</li>
+                        <li>Paste the URL above</li>
+                        <li>Click Play</li>
+                    </ol>
+                </div>
+                
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button onclick="openInVLC()" style="padding: 10px 20px; background: #4A9EFF; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                        Open in VLC
+                    </button>
+                    <button onclick="closeVLCModal()" style="padding: 10px 20px; background: #333; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                        Close
+                    </button>
+                </div>
+            `;
+            
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            // Select URL text for easy copying
+            setTimeout(() => {
+                document.getElementById('vlc-url-input').select();
+            }, 100);
+        }
+
+        function copyVLCUrl() {
+            const input = document.getElementById('vlc-url-input');
+            input.select();
+            document.execCommand('copy');
+            showNotification('URL copied to clipboard!', 'success');
+        }
+
+        function openInVLC() {
+            const streamUrl = document.getElementById('vlc-url-input').value;
+            // Try to open with VLC protocol handler
+            window.location.href = `vlc://${streamUrl}`;
+            showNotification('Opening in VLC... If VLC doesn\'t open, paste the URL manually', 'info');
+        }
+
+        function closeVLCModal() {
+            const modal = document.getElementById('vlc-modal');
+            if (modal) {
+                modal.remove();
             }
         }
 

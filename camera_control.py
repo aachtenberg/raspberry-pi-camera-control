@@ -31,6 +31,12 @@ use_hw_acceleration = True  # Use H.264 hardware encoding
 h264_stderr = None  # Keep file handle alive to prevent zombie process
 ffmpeg_stderr = None  # Keep file handle alive to prevent zombie process
 
+# VLC streaming (low latency direct H.264 stream)
+vlc_stream_process = None
+vlc_stream_lock = threading.Lock()
+vlc_stream_running = False
+vlc_stream_clients = []  # List of connected clients
+
 # Bandwidth tracking
 bandwidth_lock = threading.Lock()
 bandwidth_data = {
@@ -1126,6 +1132,152 @@ def start_stream():
         time.sleep(2)  # Give ffmpeg time to restart and listen
         threading.Thread(target=start_h264_camera, daemon=True).start()
 
+
+# ============================================================================
+# VLC Streaming (Low Latency Direct H.264 Stream)
+# ============================================================================
+
+def start_vlc_stream():
+    """Start direct H.264 stream for VLC (low latency)"""
+    global vlc_stream_process, vlc_stream_running
+    
+    with vlc_stream_lock:
+        if vlc_stream_running:
+            logger.info("VLC stream already running")
+            return True
+        
+        try:
+            # Build rpicam-vid command for H.264 output to stdout
+            cmd = [
+                'rpicam-vid',
+                '--nopreview',
+                '--codec', 'h264',
+                '--width', str(settings['width']),
+                '--height', str(settings['height']),
+                '--framerate', str(settings['framerate']),
+                '--timeout', '0',  # Run indefinitely
+                '--inline',  # Inline headers for streaming
+                '--listen',  # Listen mode for clients
+                '-o', '-'  # Output to stdout
+            ]
+            
+            # Add camera settings
+            cmd.extend(['--brightness', str(settings['brightness'])])
+            cmd.extend(['--contrast', str(settings['contrast'])])
+            cmd.extend(['--saturation', str(settings['saturation'])])
+            cmd.extend(['--sharpness', str(settings['sharpness'])])
+            cmd.extend(['--exposure', settings['exposure']])
+            cmd.extend(['--metering', settings['metering']])
+            cmd.extend(['--awb', settings['awb']])
+            
+            rotation = int(settings.get('rotation', 0))
+            if rotation != 0:
+                cmd.extend(['--rotation', str(rotation)])
+            
+            if settings.get('hflip', False):
+                cmd.append('--hflip')
+            if settings.get('vflip', False):
+                cmd.append('--vflip')
+            
+            # Add advanced settings if not default
+            if settings.get('ev', 0) != 0:
+                cmd.extend(['--ev', str(settings['ev'])])
+            if settings.get('shutter', 0) > 0:
+                cmd.extend(['--shutter', str(settings['shutter'])])
+            if settings.get('gain', 0) > 0:
+                cmd.extend(['--gain', str(settings['gain'])])
+            if settings.get('denoise', 'auto') != 'auto':
+                cmd.extend(['--denoise', settings['denoise']])
+            if settings.get('hdr', 'off') != 'off':
+                cmd.extend(['--hdr', settings['hdr']])
+            
+            logger.info(f"Starting VLC stream: {' '.join(cmd)}")
+            
+            # Start process - output goes to stdout, clients will read from it
+            vlc_stream_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=0  # Unbuffered for low latency
+            )
+            
+            vlc_stream_running = True
+            logger.info("VLC stream started successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to start VLC stream: {e}")
+            vlc_stream_running = False
+            return False
+
+
+def stop_vlc_stream():
+    """Stop VLC stream"""
+    global vlc_stream_process, vlc_stream_running, vlc_stream_clients
+    
+    with vlc_stream_lock:
+        if not vlc_stream_running:
+            return
+        
+        logger.info("Stopping VLC stream...")
+        
+        # Clear all clients
+        vlc_stream_clients.clear()
+        
+        # Stop process
+        if vlc_stream_process:
+            try:
+                vlc_stream_process.terminate()
+                vlc_stream_process.wait(timeout=2)
+            except:
+                try:
+                    vlc_stream_process.kill()
+                    vlc_stream_process.wait()
+                except:
+                    pass
+            vlc_stream_process = None
+        
+        vlc_stream_running = False
+        logger.info("VLC stream stopped")
+
+
+def generate_vlc_stream():
+    """Generator that yields H.264 stream data for VLC clients"""
+    global vlc_stream_process, vlc_stream_running
+    
+    # Ensure stream is started
+    if not vlc_stream_running:
+        if not start_vlc_stream():
+            logger.error("Failed to start VLC stream for client")
+            return
+    
+    # Wait a moment for stream to initialize
+    time.sleep(0.5)
+    
+    try:
+        logger.info("New VLC client connected")
+        
+        # Read from process stdout and yield chunks
+        while vlc_stream_running and vlc_stream_process:
+            try:
+                # Read in small chunks for low latency
+                chunk = vlc_stream_process.stdout.read(4096)
+                if not chunk:
+                    logger.warning("VLC stream ended, no more data")
+                    break
+                yield chunk
+            except Exception as e:
+                logger.error(f"Error reading VLC stream: {e}")
+                break
+        
+        logger.info("VLC client disconnected")
+        
+    except GeneratorExit:
+        logger.info("VLC client closed connection")
+    except Exception as e:
+        logger.error(f"VLC stream error: {e}")
+
+
 def generate_frames():
     """Capture frames using optimized method - try rpicam-vid first, fallback to rpicam-still"""
     global camera_running, current_camera_process
@@ -1341,8 +1493,44 @@ def get_system_info():
     return jsonify({
         'ip': ip_address,
         'disk': disk_info,
-        'bandwidth': bandwidth_kbps
+        'bandwidth': bandwidth_kbps,
+        'vlc_stream_running': vlc_stream_running
     })
+
+
+@app.route('/vlc/start', methods=['POST'])
+def start_vlc_stream_endpoint():
+    """Start VLC streaming"""
+    success = start_vlc_stream()
+    return jsonify({'success': success, 'running': vlc_stream_running})
+
+
+@app.route('/vlc/stop', methods=['POST'])
+def stop_vlc_stream_endpoint():
+    """Stop VLC streaming"""
+    stop_vlc_stream()
+    return jsonify({'success': True, 'running': False})
+
+
+@app.route('/vlc/status')
+def vlc_status():
+    """Get VLC stream status"""
+    return jsonify({'running': vlc_stream_running})
+
+
+@app.route('/stream.h264')
+def stream_h264():
+    """Direct H.264 stream for VLC (low latency)"""
+    return Response(
+        generate_vlc_stream(),
+        mimetype='video/h264',
+        headers={
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+        }
+    )
+
 
 @app.route('/snapshot', methods=['POST'])
 def take_snapshot():
