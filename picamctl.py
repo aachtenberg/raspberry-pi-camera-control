@@ -1410,7 +1410,7 @@ def generate_vlc_stream():
     logger.info("VLC HTTP client connecting...")
     
     try:
-        # Read directly from camera process stdout
+        # Get camera process
         with camera_process_lock:
             if not current_camera_process or current_camera_process.poll() is not None:
                 logger.error("Camera not running for VLC stream")
@@ -1418,13 +1418,33 @@ def generate_vlc_stream():
             
             process = current_camera_process
         
-        # Read camera output directly and stream it
+        # Set stdout to non-blocking mode
+        import fcntl
+        import os
+        flags = fcntl.fcntl(process.stdout, fcntl.F_GETFL)
+        fcntl.fcntl(process.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        
+        # Read camera output and stream it
         while True:
-            chunk = process.stdout.read(8192)
-            if not chunk:
-                logger.warning("No data from camera")
+            try:
+                chunk = process.stdout.read(8192)
+                if chunk:
+                    yield chunk
+                else:
+                    # No data available, small sleep to prevent busy-wait
+                    time.sleep(0.01)
+            except BlockingIOError:
+                # No data available yet, small sleep
+                time.sleep(0.01)
+                continue
+            except Exception as e:
+                logger.error(f"Error reading camera stream: {e}")
                 break
-            yield chunk
+            
+            # Check if process is still running
+            if process.poll() is not None:
+                logger.warning("Camera process ended")
+                break
             
     except GeneratorExit:
         logger.info("VLC HTTP client disconnected")
