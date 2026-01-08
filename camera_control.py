@@ -988,8 +988,8 @@ def start_h264_camera():
 
     ffmpeg_cmd.extend([
         '-f', 'hls',
-        '-hls_time', '2',
-        '-hls_list_size', '10',
+        '-hls_time', '1',  # 1 second segments for lower latency
+        '-hls_list_size', '5',  # Keep last 5 segments (reduced from 10)
         '-hls_flags', 'delete_segments+append_list',
         '-hls_segment_filename', os.path.join(HLS_DIR, 'segment_%03d.ts'),
         os.path.join(HLS_DIR, 'stream.m3u8')
@@ -1071,8 +1071,8 @@ def run_ffmpeg_hls_converter():
                 '-i', 'tcp://0.0.0.0:8888?listen_timeout=60000',  # Listen with timeout
                 '-c:v', 'copy',  # Copy video without re-encoding
                 '-f', 'hls',
-                '-hls_time', '2',  # 2 second segments
-                '-hls_list_size', '10',  # Keep last 10 segments
+                '-hls_time', '1',  # 1 second segments for lower latency
+                '-hls_list_size', '5',  # Keep last 5 segments (reduced from 10 for lower latency)
                 '-hls_flags', 'delete_segments+append_list',
                 '-hls_segment_filename', segment_pattern,
                 playlist_path
