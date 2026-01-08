@@ -1748,6 +1748,9 @@ def apply_settings():
     new_settings['width'] = validated_res['width']
     new_settings['height'] = validated_res['height']
     settings.update(new_settings)
+    
+    # Save settings to disk immediately after updating
+    save_settings()
 
     # Determine if restart is needed
     # Only restart for settings that require rpicam-vid restart
@@ -1768,8 +1771,7 @@ def apply_settings():
         threading.Thread(target=start_stream, daemon=True).start()
     else:
         logger.info(f"No restart needed for settings: {list(new_settings.keys())}")
-        # For settings that don't require restart (zoom, brightness, contrast, etc),
-        # just save them - they'll be picked up when stream restarts naturally
+        # Settings are already saved above
 
     response = {'status': 'ok', 'resolution': f"{validated_res['width']}x{validated_res['height']}"}
     if warning:
