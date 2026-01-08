@@ -29,12 +29,10 @@ camera_frame_buffer = []  # Shared frame buffer for all clients
 camera_running = False
 use_hw_acceleration = True  # Use H.264 hardware encoding
 h264_stderr = None  # Keep file handle alive to prevent zombie process
-ffmpeg_stderr = None  # Keep file handle alive to prevent zombie process
 
-# VLC streaming (low latency direct H.264 stream)
-vlc_stream_lock = threading.Lock()
-vlc_stream_running = False
-vlc_stream_clients = []  # List of connected clients
+# Streaming mode: 'hls' (web UI with HLS) or 'vlc' (direct H.264 TCP)
+streaming_mode = 'hls'  # Default to web UI mode
+streaming_mode_lock = threading.Lock()
 
 # Bandwidth tracking
 bandwidth_lock = threading.Lock()
@@ -44,10 +42,11 @@ bandwidth_data = {
     'current_kbps': 0
 }
 
-# Directories
+# Directories and files
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'camera_settings.json')
 HLS_DIR = os.path.join(os.path.dirname(__file__), 'hls_segments')
-FIFO_PATH = os.path.join(os.path.dirname(__file__), 'camera_fifo')
+LANDING_PAGE = os.path.join(os.path.dirname(__file__), 'landing.html')
+VLC_PAGE = os.path.join(os.path.dirname(__file__), 'vlc_stream.html')
 
 def save_settings():
     """Save current settings to file"""
@@ -1009,41 +1008,31 @@ def start_h264_camera():
         os.path.join(HLS_DIR, 'stream.m3u8')
     ])
 
-    # Create FIFO for VLC streaming if it doesn't exist
-    vlc_fifo = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
-    if os.path.exists(vlc_fifo):
-        os.remove(vlc_fifo)
-    os.mkfifo(vlc_fifo)
-    
-    # Use tee to split stream: one to ffmpeg (HLS), one to FIFO (VLC)
-    # Full command: rpicam-vid | tee >(ffmpeg ... HLS) > vlc_stream.fifo
+    # Simple pipe from rpicam-vid to ffmpeg for HLS
     camera_cmd = ' '.join(cmd)
     ffmpeg_cmd_str = ' '.join(ffmpeg_cmd)
-    
-    # Combined command with process substitution
-    full_cmd = f"{camera_cmd} | tee >({ffmpeg_cmd_str}) > {vlc_fifo}"
+    full_cmd = f"{camera_cmd} | {ffmpeg_cmd_str}"
     
     # Log file for debugging
     log_file = os.path.join(os.path.dirname(__file__), 'camera.log')
 
     try:
-        logger.info(f"Starting H.264 camera with split output (HLS + VLC FIFO)")
+        logger.info(f"Starting H.264 camera for HLS streaming (web UI mode)")
         logger.info(f"Command: {full_cmd}")
         
         # Close previous log file if exists
-        global h264_stderr, current_camera_process, ffmpeg_process
+        global h264_stderr, current_camera_process
         if h264_stderr and not h264_stderr.closed:
             try:
                 h264_stderr.close()
             except:
                 pass
         
-        # Start the combined command
+        # Start the piped command
         h264_stderr = open(log_file, 'wb', buffering=0)
         camera_process = subprocess.Popen(
             full_cmd,
             shell=True,
-            executable='/bin/bash',  # Required for process substitution
             stdout=subprocess.DEVNULL,
             stderr=h264_stderr,
             start_new_session=True
@@ -1066,18 +1055,11 @@ def start_h264_camera():
             camera_running = True
 
         logger.info("H.264 hardware-accelerated camera started successfully")
-        logger.info("Stream split: ffmpeg (HLS) + FIFO (VLC)")
+        logger.info("HLS streaming active for web UI")
         
         return True
     except Exception as e:
         logger.error(f"Failed to start H.264 camera: {e}")
-        # Clean up FIFO on error
-        vlc_fifo = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
-        try:
-            if os.path.exists(vlc_fifo):
-                os.remove(vlc_fifo)
-        except:
-            pass
         return False
 
 def run_ffmpeg_hls_converter():
@@ -1157,70 +1139,155 @@ def start_stream():
 
 
 # ============================================================================
-# VLC Streaming (Low Latency Direct H.264 Stream)
+# VLC Streaming (Low Latency Direct H.264 Stream via TCP)
 # ============================================================================
 
-def start_vlc_stream():
-    """Start direct H.264 stream for VLC (low latency) - connects to existing TCP stream"""
-    global vlc_stream_running
+def start_vlc_camera():
+    """Start camera in VLC streaming mode - direct H.264 to TCP socket"""
+    global current_camera_process, camera_running
     
-    with vlc_stream_lock:
-        if vlc_stream_running:
-            logger.info("VLC stream already running")
-            return True
+    logger.info("Starting camera in VLC streaming mode (TCP output)")
+    
+    rotation = int(settings.get('rotation', 0))
+    
+    # Build rpicam-vid command for TCP streaming (no transcoding)
+    cmd = [
+        'rpicam-vid',
+        '--nopreview',
+        '--codec', 'h264',
+        '--width', str(settings['width']),
+        '--height', str(settings['height']),
+        '--framerate', str(settings['framerate']),
+        '--timeout', '0',
+        '--brightness', str(settings['brightness']),
+        '--contrast', str(settings['contrast']),
+        '--saturation', str(settings['saturation']),
+        '--sharpness', str(settings['sharpness']),
+        '--exposure', settings['exposure'],
+        '--metering', settings['metering'],
+        '--awb', settings['awb'],
+        '--inline',
+        '--listen',  # Wait for TCP client
+        '-o', 'tcp://0.0.0.0:8888'  # TCP server on port 8888
+    ]
+    
+    # Add rotation if not 90/270 (those require transcoding)
+    if rotation in (0, 180):
+        cmd.extend(['--rotation', str(rotation)])
+    
+    # Add advanced settings
+    if settings['ev'] != 0:
+        cmd.extend(['--ev', str(settings['ev'])])
+    if settings['shutter'] > 0:
+        cmd.extend(['--shutter', str(settings['shutter'])])
+    if settings['gain'] > 0:
+        cmd.extend(['--gain', str(settings['gain'])])
+    if settings['denoise'] != 'auto':
+        cmd.extend(['--denoise', settings['denoise']])
+    if settings['hdr'] != 'off':
+        cmd.extend(['--hdr', settings['hdr']])
+    if settings['hflip']:
+        cmd.append('--hflip')
+    if settings['vflip']:
+        cmd.append('--vflip')
+    
+    # Apply digital zoom (ROI)
+    zoom_factor = float(settings.get('zoom', 1.0))
+    if zoom_factor > 1.0:
+        w = 1.0 / zoom_factor
+        h = 1.0 / zoom_factor
+        x = (1.0 - w) / 2.0
+        y = (1.0 - h) / 2.0
+        cmd.extend(['--roi', f"{x},{y},{w},{h}"])
+    
+    log_file = os.path.join(os.path.dirname(__file__), 'vlc_camera.log')
+    
+    try:
+        camera_cmd = ' '.join(cmd)
+        logger.info(f"VLC camera command: {camera_cmd}")
         
-        # VLC stream just marks that we're ready to serve clients
-        # The actual streaming happens in generate_vlc_stream() by connecting to TCP
-        vlc_stream_running = True
-        logger.info("VLC stream enabled - clients can now connect to /stream.h264")
+        global h264_stderr
+        if h264_stderr and not h264_stderr.closed:
+            try:
+                h264_stderr.close()
+            except:
+                pass
+        
+        h264_stderr = open(log_file, 'wb', buffering=0)
+        camera_process = subprocess.Popen(
+            camera_cmd,
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=h264_stderr,
+            start_new_session=True
+        )
+        
+        time.sleep(2)
+        if camera_process.poll() is not None:
+            try:
+                with open(log_file, 'r') as f:
+                    stderr = f.read()
+                logger.error(f"VLC camera exited immediately. Error: {stderr}")
+            except:
+                logger.error("VLC camera exited immediately")
+            h264_stderr.close()
+            return False
+        
+        with camera_process_lock:
+            current_camera_process = camera_process
+            camera_running = True
+        
+        logger.info("VLC camera started - TCP server on port 8888")
+        logger.info("Stream URL: tcp://0.0.0.0:8888")
         return True
-
-
-def stop_vlc_stream():
-    """Stop VLC stream"""
-    global vlc_stream_running, vlc_stream_clients
-    
-    with vlc_stream_lock:
-        if not vlc_stream_running:
-            return
-        
-        logger.info("Stopping VLC stream...")
-        
-        # Clear all clients
-        vlc_stream_clients.clear()
-        
-        vlc_stream_running = False
-        logger.info("VLC stream stopped")
+    except Exception as e:
+        logger.error(f"Failed to start VLC camera: {e}")
+        return False
 
 
 def generate_vlc_stream():
-    """Generator that yields H.264 stream data for VLC clients by reading from FIFO"""
-    vlc_fifo = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
+    """Generator that yields H.264 stream from TCP socket for HTTP clients"""
+    import socket
     
     try:
-        logger.info("New VLC client connecting to stream FIFO...")
+        logger.info("VLC HTTP client connecting to TCP stream...")
         
-        # Open FIFO for reading (blocks until writer is ready)
-        with open(vlc_fifo, 'rb') as fifo:
-            logger.info("VLC client connected to H.264 stream")
-            
-            # Stream data to VLC client
-            while vlc_stream_running:
-                try:
-                    # Read data from FIFO
-                    chunk = fifo.read(8192)
-                    if not chunk:
-                        logger.warning("FIFO stream ended, no more data")
-                        break
-                    yield chunk
-                except Exception as e:
-                    logger.error(f"Error reading from FIFO: {e}")
+        # Connect to rpicam-vid's TCP server
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(10)
+        
+        try:
+            sock.connect(('127.0.0.1', 8888))
+            logger.info("VLC HTTP client connected to camera TCP stream")
+        except Exception as e:
+            logger.error(f"Failed to connect to camera TCP: {e}")
+            sock.close()
+            return
+        
+        sock.settimeout(0.5)
+        
+        # Stream data to HTTP client
+        while True:
+            try:
+                chunk = sock.recv(8192)
+                if not chunk:
                     break
+                yield chunk
+            except socket.timeout:
+                continue
+            except Exception as e:
+                logger.error(f"Error streaming: {e}")
+                break
         
-        logger.info("VLC client disconnected")
+        sock.close()
+        logger.info("VLC HTTP client disconnected")
         
     except GeneratorExit:
-        logger.info("VLC client closed connection")
+        logger.info("VLC HTTP client closed")
+        try:
+            sock.close()
+        except:
+            pass
     except Exception as e:
         logger.error(f"VLC stream error: {e}")
 
@@ -1389,7 +1456,55 @@ def generate_frames():
 
 @app.route('/')
 def index():
+    """Landing page - choose between web UI or VLC streaming"""
+    try:
+        with open(LANDING_PAGE, 'r') as f:
+            return f.read()
+    except:
+        return '''
+        <html><body>
+        <h1>Camera Control</h1>
+        <p><a href="/web">Web Browser Mode</a> - Full camera control with HLS streaming</p>
+        <p><a href="/vlc">VLC Streaming Mode</a> - Low latency direct H.264 stream</p>
+        </body></html>
+        '''
+
+@app.route('/web')
+def web_mode():
+    """Full web UI with HLS streaming"""
+    global streaming_mode
+    with streaming_mode_lock:
+        if streaming_mode != 'hls':
+            # Switch to HLS mode
+            stop_camera_process()
+            streaming_mode = 'hls'
+            threading.Thread(target=start_h264_camera, daemon=True).start()
+            time.sleep(2)  # Wait for camera to start
     return render_template_string(get_html())
+
+@app.route('/vlc')
+def vlc_mode():
+    """VLC streaming page"""
+    global streaming_mode
+    with streaming_mode_lock:
+        if streaming_mode != 'vlc':
+            # Switch to VLC mode
+            stop_camera_process()
+            streaming_mode = 'vlc'
+            threading.Thread(target=start_vlc_camera, daemon=True).start()
+            time.sleep(2)  # Wait for camera to start
+    try:
+        with open(VLC_PAGE, 'r') as f:
+            return f.read()
+    except:
+        return '''
+        <html><body>
+        <h1>VLC Streaming</h1>
+        <p>Stream URL: http://''' + request.host + '''/stream.h264</p>
+        <p>Open this URL in VLC Media Player (Media → Open Network Stream)</p>
+        <p><a href="/">Back to Mode Selection</a></p>
+        </body></html>
+        '''
 
 @app.route('/hls/<path:filename>')
 def serve_hls(filename):
@@ -1445,29 +1560,22 @@ def get_system_info():
     })
 
 
-@app.route('/vlc/start', methods=['POST'])
-def start_vlc_stream_endpoint():
-    """Start VLC streaming"""
-    success = start_vlc_stream()
-    return jsonify({'success': success, 'running': vlc_stream_running})
-
-
-@app.route('/vlc/stop', methods=['POST'])
-def stop_vlc_stream_endpoint():
-    """Stop VLC streaming"""
-    stop_vlc_stream()
-    return jsonify({'success': True, 'running': False})
-
-
-@app.route('/vlc/status')
-def vlc_status():
-    """Get VLC stream status"""
-    return jsonify({'running': vlc_stream_running})
+@app.route('/api/stop_vlc_mode', methods=['POST'])
+def stop_vlc_mode_endpoint():
+    """Stop VLC mode and return to landing page"""
+    global streaming_mode
+    with streaming_mode_lock:
+        streaming_mode = 'hls'  # Reset to default
+    stop_camera_process()
+    return jsonify({'success': True})
 
 
 @app.route('/stream.h264')
 def stream_h264():
-    """Direct H.264 stream for VLC (low latency)"""
+    """Direct H.264 stream for VLC (low latency) - only works in VLC mode"""
+    if streaming_mode != 'vlc':
+        return jsonify({'error': 'VLC mode not active'}), 400
+    
     return Response(
         generate_vlc_stream(),
         mimetype='video/h264',

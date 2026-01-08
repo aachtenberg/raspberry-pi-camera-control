@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VLC Streaming Mode</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding-top: 40px;
+        }
+        
+        .back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            text-decoration: none;
+            margin-bottom: 30px;
+            transition: background 0.3s;
+        }
+        
+        .back-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 12px 20px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+        
+        .status.inactive {
+            background: #fff3e0;
+            color: #e65100;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4caf50;
+            animation: pulse 2s infinite;
+        }
+        
+        .status.inactive .status-dot {
+            background: #ff9800;
+            animation: none;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .stream-url {
+            background: #f5f5f5;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 30px 0;
+            text-align: center;
+        }
+        
+        .stream-url label {
+            display: block;
+            color: #666;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        .url-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .url-text {
+            font-family: 'Courier New', monospace;
+            font-size: 1.1rem;
+            color: #667eea;
+            font-weight: bold;
+            padding: 12px 20px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+        }
+        
+        .copy-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        
+        .copy-btn:hover {
+            background: #5568d3;
+        }
+        
+        .copy-btn.copied {
+            background: #4caf50;
+        }
+        
+        .instructions {
+            margin-top: 40px;
+        }
+        
+        .instructions h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+        
+        .step {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .step-number {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        
+        .step-content {
+            display: inline-block;
+            vertical-align: top;
+            width: calc(100% - 50px);
+        }
+        
+        .note {
+            background: #fff8e1;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            color: #856404;
+        }
+        
+        .control-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+            justify-content: center;
+        }
+        
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+        
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-btn">
+            <span>←</span>
+            <span>Back to Mode Selection</span>
+        </a>
+        
+        <div class="card">
+            <div class="header">
+                <h1>VLC Streaming Mode</h1>
+                <div class="status" id="status">
+                    <div class="status-dot"></div>
+                    <span id="status-text">Stream Active</span>
+                </div>
+            </div>
+            
+            <div class="stream-url">
+                <label>Stream URL</label>
+                <div class="url-container">
+                    <div class="url-text" id="stream-url">Loading...</div>
+                    <button class="copy-btn" id="copy-btn" onclick="copyUrl()">Copy</button>
+                </div>
+            </div>
+            
+            <div class="instructions">
+                <h2>How to Connect</h2>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <div class="step-content">
+                        <strong>Open VLC Media Player</strong><br>
+                        Download from <a href="https://www.videolan.org/" target="_blank">videolan.org</a> if needed
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <div class="step-content">
+                        <strong>Open Network Stream</strong><br>
+                        Go to Media → Open Network Stream (or press Ctrl+N)
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <div class="step-content">
+                        <strong>Paste the Stream URL</strong><br>
+                        Copy the URL above and paste it into VLC
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <div class="step-content">
+                        <strong>Click Play</strong><br>
+                        The stream should start within 1-2 seconds with minimal latency
+                    </div>
+                </div>
+                
+                <div class="note">
+                    <strong>💡 Pro Tip:</strong> For the lowest latency, go to VLC's Tools → Preferences → Show settings: All → 
+                    Input/Codecs and set "Network caching" to 100-300ms
+                </div>
+            </div>
+            
+            <div class="control-buttons">
+                <button class="btn btn-primary" onclick="openInVLC()">
+                    Open in VLC
+                </button>
+                <button class="btn btn-secondary" onclick="stopStream()">
+                    Stop Stream
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function updateStreamUrl() {
+            const url = `http://${window.location.hostname}:5000/stream.h264`;
+            document.getElementById('stream-url').textContent = url;
+        }
+        
+        function copyUrl() {
+            const urlText = document.getElementById('stream-url').textContent;
+            const btn = document.getElementById('copy-btn');
+            
+            navigator.clipboard.writeText(urlText).then(() => {
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+        
+        function openInVLC() {
+            const url = document.getElementById('stream-url').textContent;
+            window.location.href = `vlc://${url}`;
+        }
+        
+        function stopStream() {
+            if (confirm('Stop VLC streaming and return to mode selection?')) {
+                fetch('/api/stop_vlc_mode', { method: 'POST' })
+                    .then(() => window.location.href = '/')
+                    .catch(err => console.error('Error stopping stream:', err));
+            }
+        }
+        
+        // Update URL on page load
+        updateStreamUrl();
+    </script>
+</body>
+</html>
