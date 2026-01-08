@@ -40,6 +40,8 @@ vlc_stream_buffer = []
 vlc_buffer_lock = threading.Lock()
 vlc_buffer_thread = None
 vlc_buffer_max_chunks = 100  # Keep last N chunks in memory
+vlc_stream_active = False
+vlc_stream_clients = 0
 
 # Bandwidth tracking
 bandwidth_lock = threading.Lock()
@@ -1403,53 +1405,96 @@ def start_vlc_camera():
         return False
 
 
-def generate_vlc_stream():
-    """Generator that yields H.264 stream directly from camera process stdout"""
-    global current_camera_process
+def vlc_buffer_worker():
+    """Background thread that reads from camera and fills the buffer"""
+    global vlc_stream_active, current_camera_process
     
-    logger.info("VLC HTTP client connecting...")
+    logger.info("VLC buffer worker started")
     
     try:
-        # Get camera process
         with camera_process_lock:
-            if not current_camera_process or current_camera_process.poll() is not None:
-                logger.error("Camera not running for VLC stream")
+            if not current_camera_process:
+                logger.error("No camera process for VLC buffering")
                 return
-            
             process = current_camera_process
         
-        # Set stdout to non-blocking mode
+        # Set stdout to non-blocking
         import fcntl
         import os
         flags = fcntl.fcntl(process.stdout, fcntl.F_GETFL)
         fcntl.fcntl(process.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
         
-        # Read camera output and stream it
-        while True:
+        while vlc_stream_active:
             try:
                 chunk = process.stdout.read(8192)
                 if chunk:
-                    yield chunk
+                    with vlc_buffer_lock:
+                        vlc_stream_buffer.append(chunk)
+                        # Keep buffer size limited
+                        if len(vlc_stream_buffer) > vlc_buffer_max_chunks:
+                            vlc_stream_buffer.pop(0)
                 else:
-                    # No data available, small sleep to prevent busy-wait
                     time.sleep(0.01)
             except BlockingIOError:
-                # No data available yet, small sleep
                 time.sleep(0.01)
-                continue
             except Exception as e:
-                logger.error(f"Error reading camera stream: {e}")
+                logger.error(f"VLC buffer worker error: {e}")
                 break
             
-            # Check if process is still running
+            # Check if process died
             if process.poll() is not None:
                 logger.warning("Camera process ended")
                 break
+    
+    except Exception as e:
+        logger.error(f"VLC buffer worker exception: {e}")
+    finally:
+        vlc_stream_active = False
+        logger.info("VLC buffer worker stopped")
+
+
+def generate_vlc_stream():
+    """Generator that yields H.264 stream from buffer (supports multiple clients)"""
+    global vlc_stream_clients, vlc_buffer_thread, vlc_stream_active
+    
+    logger.info("VLC HTTP client connecting...")
+    
+    try:
+        # Start buffer thread if not running
+        with vlc_buffer_lock:
+            vlc_stream_clients += 1
+            if not vlc_buffer_thread or not vlc_buffer_thread.is_alive():
+                vlc_stream_active = True
+                vlc_buffer_thread = threading.Thread(target=vlc_buffer_worker, daemon=True)
+                vlc_buffer_thread.start()
+        
+        # Track the last chunk index we sent to this client
+        last_index = 0
+        
+        # Stream buffered chunks to client
+        while vlc_stream_active:
+            with vlc_buffer_lock:
+                if last_index < len(vlc_stream_buffer):
+                    # Send all new chunks since last_index
+                    for i in range(last_index, len(vlc_stream_buffer)):
+                        yield vlc_stream_buffer[i]
+                    last_index = len(vlc_stream_buffer)
+            
+            # Small sleep if no new data
+            time.sleep(0.01)
             
     except GeneratorExit:
         logger.info("VLC HTTP client disconnected")
     except Exception as e:
         logger.error(f"VLC stream error: {e}")
+    finally:
+        # Decrement client counter
+        with vlc_buffer_lock:
+            vlc_stream_clients = max(0, vlc_stream_clients - 1)
+            # Stop buffering if no clients
+            if vlc_stream_clients == 0:
+                vlc_stream_active = False
+                logger.info("No VLC clients, stopping buffer")
 
 
 def generate_frames():
