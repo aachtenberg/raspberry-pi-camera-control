@@ -1359,14 +1359,12 @@
                 height: parseInt(res[1])
             };
 
-            showNotification(`Changing resolution to ${res[0]}x${res[1]}...`, 'info');
-
             fetch('/apply', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(settings)
             }).then(() => {
-                showNotification(`Resolution changed`, 'success');
+                showNotification(`Resolution changed to ${res[0]}x${res[1]}`, 'success');
                 // Wait for camera/ffmpeg to restart and create initial segments
                 // Needs about 2s for startup + 2s for first segment
                 setTimeout(() => {
