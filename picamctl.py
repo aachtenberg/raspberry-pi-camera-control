@@ -43,7 +43,7 @@ bandwidth_data = {
 }
 
 # Directories and files
-SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'camera_settings.json')
+SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'picamctl_settings.json')
 HLS_DIR = os.path.join(os.path.dirname(__file__), 'hls_segments')
 LANDING_PAGE = os.path.join(os.path.dirname(__file__), 'landing.html')
 VLC_PAGE = os.path.join(os.path.dirname(__file__), 'vlc_stream.html')
@@ -187,7 +187,7 @@ HTML = '''
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Pi Camera Control</title>
+    <title>picamctl</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body {
@@ -413,7 +413,7 @@ HTML = '''
     </style>
 </head>
 <body>
-    <h1>🎥 Pi Camera Control</h1>
+    <h1>🎥 picamctl</h1>
     
     <div class="container">
         <div class="video-container">
@@ -1463,7 +1463,7 @@ def index():
     except:
         return '''
         <html><body>
-        <h1>Camera Control</h1>
+        <h1>picamctl</h1>
         <p><a href="/web">Web Browser Mode</a> - Full camera control with HLS streaming</p>
         <p><a href="/vlc">VLC Streaming Mode</a> - Low latency direct H.264 stream</p>
         </body></html>
@@ -1824,7 +1824,7 @@ if __name__ == '__main__':
         threading.Thread(target=start_h264_camera, daemon=True).start()
         time.sleep(1)  # Give camera time to initialize
 
-    logger.info("Starting camera control interface...")
+    logger.info("Starting picamctl interface...")
     logger.info("Access at: http://<your-pi-ip>:5000 (replace with your host IP)")
     logger.info(f"Hardware acceleration: {'enabled (H.264)' if use_hw_acceleration else 'disabled (MJPEG)'}")
 

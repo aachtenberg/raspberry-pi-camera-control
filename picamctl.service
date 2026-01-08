@@ -1,13 +1,13 @@
 [Unit]
-Description=Raspberry Pi Camera Control Service
+Description=picamctl - Raspberry Pi Camera Control
 After=network.target
 Wants=network.target
 
 [Service]
 Type=simple
 User=aachten
-WorkingDirectory=/home/aachten/camera_control
-ExecStart=/usr/bin/python3 /home/aachten/camera_control/camera_control.py
+WorkingDirectory=/home/aachten/picamctl
+ExecStart=/usr/bin/python3 /home/aachten/picamctl/picamctl.py
 Restart=always
 RestartSec=5
 StandardOutput=journal

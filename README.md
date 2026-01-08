@@ -1,4 +1,4 @@
-# Raspberry Pi Camera Control with H.264 HLS
+# picamctl - Raspberry Pi Camera Control
 
 A web-based camera control interface for Raspberry Pi Camera 3 with hardware-accelerated H.264 streaming.
 
@@ -92,9 +92,9 @@ This checks and installs:
 ```
 
 This will:
-- Copy all files to `/home/<user>/camera_control/` (or set `REMOTE_DIR` in `deploy_to_pi.sh`)
+- Copy all files to `/home/<user>/picamctl/` (or set `REMOTE_DIR` in `deploy_to_pi.sh`)
 - Install/update the systemd service
-- Restart the camera-control service
+- Restart the picamctl service
 - Show service status
 
 ### 3. Access Web Interface
@@ -128,27 +128,27 @@ CI: A GitHub Actions workflow runs `detect-secrets` on pushes and pull requests 
 
 ```bash
 # Check status
-sudo systemctl status camera-control
+sudo systemctl status picamctl
 
 # View logs
-sudo journalctl -u camera-control -f
+sudo journalctl -u picamctl -f
 
 # Restart
-sudo systemctl restart camera-control
+sudo systemctl restart picamctl
 
 # Stop
-sudo systemctl stop camera-control
+sudo systemctl stop picamctl
 
 # Start
-sudo systemctl start camera-control
+sudo systemctl start picamctl
 ```
 
 ## Files
 
-- `camera_control.py` - Main Flask application with H.264 streaming
+- `picamctl.py` - Main Flask application with H.264 streaming
 - `garage_cam_template.html` - Web UI with HLS.js player
-- `camera_settings.json` - Saved camera settings
-- `camera-control.service` - Systemd service file
+- `picamctl_settings.json` - Saved camera settings
+- `picamctl.service` - Systemd service file
 - `manage_service.sh` - Service management helper
 - `deploy_to_pi.sh` - Deployment script
 - `check_dependencies.sh` - Dependency checker
@@ -210,7 +210,8 @@ Tested configuration:
 ### No video in browser
 1. Check if HLS segments are being created:
    ```bash
-   ssh <user>@<host> 'ls -lh /home/<user>/camera_control/hls_segments/'
+   ssh <user>@<host> 'ls -lh /home/<user>/picamctl/hls_segments/'
+   ```
 
 2. Check if processes are running:
    ```bash
@@ -218,7 +219,8 @@ Tested configuration:
 
 3. Check service logs:
    ```bash
-   ssh <user>@<host> 'sudo journalctl -u camera-control -f'
+   ssh <user>@<host> 'sudo journalctl -u picamctl -f'
+   ```
 
 ### Zombie processes
 Fixed! The new implementation uses:
