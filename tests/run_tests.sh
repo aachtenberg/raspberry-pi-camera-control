@@ -69,12 +69,12 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --quick)
-            MARKERS="-m 'not slow'"
+            MARKERS='-m "not slow"'
             echo "⚡ Running quick tests only (skipping slow tests)"
             shift
             ;;
         --slow)
-            MARKERS="-m slow"
+            MARKERS='-m "slow"'
             echo "🐌 Running slow tests only"
             shift
             ;;
@@ -99,12 +99,12 @@ echo "🚀 Running tests..."
 echo ""
 
 # Run pytest with Playwright
-pytest $VERBOSE \
-    --base-url="$BASE_URL" \
+eval "pytest $VERBOSE \
+    --base-url='$BASE_URL' \
     $HEADED \
     $MARKERS \
     $HTML_REPORT \
-    test_ui.py
+    test_ui.py"
 
 TEST_EXIT_CODE=$?
 

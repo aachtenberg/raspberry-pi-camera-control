@@ -58,17 +58,17 @@ class TestPageLayout:
         play_pause = page.locator("#play-pause-btn")
         expect(play_pause).to_be_visible()
         
-        # Stop button
-        stop_buttons = page.locator('button:has-text("Stop")')
-        expect(stop_buttons.first).to_be_visible()
+        # Stop button (has title="Stop Stream")
+        stop_button = page.locator('button[title="Stop Stream"]')
+        expect(stop_button).to_be_visible()
         
         # Snapshot button
-        snapshot_buttons = page.locator('button[title="Take Picture"]')
-        expect(snapshot_buttons.first).to_be_visible()
+        snapshot_button = page.locator('button[title="Take Picture"]')
+        expect(snapshot_button).to_be_visible()
         
         # Fullscreen button
-        fullscreen_buttons = page.locator('button[title="Fullscreen"]')
-        expect(fullscreen_buttons.first).to_be_visible()
+        fullscreen_button = page.locator('button[title="Fullscreen"]')
+        expect(fullscreen_button).to_be_visible()
 
 
 class TestSettingsPanel:
@@ -115,7 +115,7 @@ class TestSettingsPanel:
         }
         
         for slider_id, label_text in sliders.items():
-            slider = page.locator(f"#${slider_id}")
+            slider = page.locator(f"#{slider_id}")
             expect(slider).to_be_attached()
     
     def test_all_dropdowns_exist(self, page: Page, base_url: str):
@@ -126,7 +126,7 @@ class TestSettingsPanel:
         dropdowns = ["denoise", "hdr", "exposure", "metering", "awb", "rotation"]
         
         for dropdown_id in dropdowns:
-            dropdown = page.locator(f"#${dropdown_id}")
+            dropdown = page.locator(f"#{dropdown_id}")
             expect(dropdown).to_be_attached()
     
     def test_flip_checkboxes_exist(self, page: Page, base_url: str):
@@ -134,8 +134,9 @@ class TestSettingsPanel:
         page.goto(base_url)
         page.locator(".settings-icon").click()
         
-        hflip = page.locator("#hflip")
-        vflip = page.locator("#vflip")
+        # Checkboxes are inside labels, find by input type
+        hflip = page.locator('input[type="checkbox"]').nth(0)  # First checkbox is hflip
+        vflip = page.locator('input[type="checkbox"]').nth(1)  # Second checkbox is vflip
         
         expect(hflip).to_be_attached()
         expect(vflip).to_be_attached()
