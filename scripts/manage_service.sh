@@ -1,36 +1,36 @@
 #!/bin/bash
 
-# Camera Control Service Management Script
+# picamctl Service Management Script
 
-SERVICE_NAME="camera-control"
+SERVICE_NAME="picamctl"
 
 case "$1" in
     start)
-        echo "Starting camera control service..."
+        echo "Starting picamctl service..."
         sudo systemctl start $SERVICE_NAME
         ;;
     stop)
-        echo "Stopping camera control service..."
+        echo "Stopping picamctl service..."
         sudo systemctl stop $SERVICE_NAME
         ;;
     restart)
-        echo "Restarting camera control service..."
+        echo "Restarting picamctl service..."
         sudo systemctl restart $SERVICE_NAME
         ;;
     status)
-        echo "Camera control service status:"
+        echo "picamctl service status:"
         sudo systemctl status $SERVICE_NAME
         ;;
     logs)
-        echo "Camera control service logs:"
+        echo "picamctl service logs:"
         sudo journalctl -u $SERVICE_NAME -f
         ;;
     enable)
-        echo "Enabling camera control service to start on boot..."
+        echo "Enabling picamctl service to start on boot..."
         sudo systemctl enable $SERVICE_NAME
         ;;
     disable)
-        echo "Disabling camera control service from starting on boot..."
+        echo "Disabling picamctl service from starting on boot..."
         sudo systemctl disable $SERVICE_NAME
         ;;
     *)

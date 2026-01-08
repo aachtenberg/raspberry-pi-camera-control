@@ -29,7 +29,16 @@ camera_frame_buffer = []  # Shared frame buffer for all clients
 camera_running = False
 use_hw_acceleration = True  # Use H.264 hardware encoding
 h264_stderr = None  # Keep file handle alive to prevent zombie process
-ffmpeg_stderr = None  # Keep file handle alive to prevent zombie process
+
+# Streaming mode: 'hls' (web UI with HLS) or 'vlc' (direct H.264 TCP)
+streaming_mode = 'hls'  # Default to web UI mode
+streaming_mode_lock = threading.Lock()
+
+# VLC streaming buffer - circular buffer for H.264 chunks
+vlc_stream_buffer = []
+vlc_buffer_lock = threading.Lock()
+vlc_buffer_thread = None
+vlc_buffer_max_chunks = 100  # Keep last N chunks in memory
 
 # Bandwidth tracking
 bandwidth_lock = threading.Lock()
@@ -39,10 +48,23 @@ bandwidth_data = {
     'current_kbps': 0
 }
 
-# Directories
-SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'camera_settings.json')
+# Directories and files
+SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'picamctl_settings.json')
 HLS_DIR = os.path.join(os.path.dirname(__file__), 'hls_segments')
-FIFO_PATH = os.path.join(os.path.dirname(__file__), 'camera_fifo')
+
+# Template files - check both deployed location and dev location
+def get_template_path(filename):
+    """Get template path, checking deployed location first, then dev location"""
+    deployed = os.path.join(os.path.dirname(__file__), filename)
+    if os.path.exists(deployed):
+        return deployed
+    dev = os.path.join(os.path.dirname(__file__), 'templates', filename)
+    if os.path.exists(dev):
+        return dev
+    return deployed  # Return deployed path anyway for error message
+
+LANDING_PAGE = get_template_path('landing.html')
+VLC_PAGE = get_template_path('vlc_stream.html')
 
 def save_settings():
     """Save current settings to file"""
@@ -164,7 +186,7 @@ def calculate_bandwidth():
         logger.error(f"Error calculating bandwidth: {e}")
         return 0
 
-HTML_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'garage_cam_template.html')
+HTML_TEMPLATE_PATH = get_template_path('garage_cam_template.html')
 
 def get_html():
     """Load HTML template from file"""
@@ -183,7 +205,7 @@ HTML = '''
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Pi Camera Control</title>
+    <title>picamctl</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body {
@@ -409,7 +431,7 @@ HTML = '''
     </style>
 </head>
 <body>
-    <h1>🎥 Pi Camera Control</h1>
+    <h1>🎥 picamctl</h1>
     
     <div class="container">
         <div class="video-container">
@@ -872,9 +894,10 @@ def stop_camera_process():
         
         time.sleep(0.5)  # Give them time to die
         
+        # Stop camera process
         if current_camera_process and current_camera_process.poll() is None:
             try:
-                logger.info("Stopping current camera process...")
+                logger.info("Stopping camera process...")
                 current_camera_process.terminate()
                 current_camera_process.wait(timeout=2)
                 logger.info("Camera process stopped")
@@ -885,6 +908,14 @@ def stop_camera_process():
                 except:
                     pass
             current_camera_process = None
+        
+        # Clean up FIFO
+        vlc_fifo = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
+        try:
+            if os.path.exists(vlc_fifo):
+                os.remove(vlc_fifo)
+        except:
+            pass
         
         logger.info("Camera processes stopped")
 
@@ -912,7 +943,7 @@ def start_h264_camera():
     needs_transpose = rotation in (90, 270)
     transpose_filter = 'transpose=1' if rotation == 90 else 'transpose=2'
 
-    # Use simpler H.264 encoding - output to stdout
+    # Use H.264 encoding - output to stdout, then use process substitution to split stream
     cmd = [
         'rpicam-vid',
         '--nopreview',
@@ -929,7 +960,7 @@ def start_h264_camera():
         '--metering', settings['metering'],
         '--awb', settings['awb'],
         '--inline',  # Inline headers for streaming
-        '-o', '-'  # Output to stdout for piping
+        '-o', '-'  # Output to stdout
     ]
 
     # rpicam-vid cannot rotate 90/270 with H.264; offload to ffmpeg when needed
@@ -962,13 +993,13 @@ def start_h264_camera():
         y = (1.0 - h) / 2.0
         cmd.extend(['--roi', f"{x},{y},{w},{h}"])
 
-    # Build ffmpeg command
+    # Build ffmpeg command - read from stdin (will be piped from tee)
     ffmpeg_cmd = [
         'ffmpeg',
         '-hide_banner',
         '-loglevel', 'warning',
         '-f', 'h264',
-        '-i', '-',  # Read raw H.264 from stdin
+        '-i', '-',  # Read from stdin
     ]
 
     if needs_transpose:
@@ -995,16 +1026,19 @@ def start_h264_camera():
         os.path.join(HLS_DIR, 'stream.m3u8')
     ])
 
-    # Combine commands with pipe - AFTER all rpicam-vid args are added
-    full_cmd = ' '.join(cmd) + ' | ' + ' '.join(ffmpeg_cmd)
-
+    # Simple pipe from rpicam-vid to ffmpeg for HLS
+    camera_cmd = ' '.join(cmd)
+    ffmpeg_cmd_str = ' '.join(ffmpeg_cmd)
+    full_cmd = f"{camera_cmd} | {ffmpeg_cmd_str}"
+    
     # Log file for debugging
-    log_file = os.path.join(os.path.dirname(__file__), 'h264_camera.log')
+    log_file = os.path.join(os.path.dirname(__file__), 'camera.log')
 
     try:
-        logger.info(f"Starting H.264 camera with command: {full_cmd}")
+        logger.info(f"Starting H.264 camera for HLS streaming (web UI mode)")
+        logger.info(f"Command: {full_cmd}")
         
-        # Close previous log file if it exists
+        # Close previous log file if exists
         global h264_stderr, current_camera_process
         if h264_stderr and not h264_stderr.closed:
             try:
@@ -1012,39 +1046,34 @@ def start_h264_camera():
             except:
                 pass
         
-        # Open log file for stderr - must keep open for process lifetime
-        h264_stderr = open(log_file, 'wb', buffering=0)  # Unbuffered binary mode
-        
-        # CRITICAL: Use devnull for stdout and file for stderr to prevent zombie process
-        process = subprocess.Popen(
+        # Start the piped command
+        h264_stderr = open(log_file, 'wb', buffering=0)
+        camera_process = subprocess.Popen(
             full_cmd,
             shell=True,
             stdout=subprocess.DEVNULL,
             stderr=h264_stderr,
-            start_new_session=True  # Detach from parent process
+            start_new_session=True
         )
         
-        # Save process reference
-        current_camera_process = process
-
-        # Wait a moment and check if process is still running
-        time.sleep(2)  # Increased wait for ffmpeg to initialize
-        if process.poll() is not None:
-            # Process exited, read stderr
+        # Wait and check if process started successfully
+        time.sleep(2)
+        if camera_process.poll() is not None:
             try:
                 with open(log_file, 'r') as f:
                     stderr = f.read()
-                logger.error(f"H.264 camera process exited immediately. Error: {stderr}")
+                logger.error(f"Camera process exited immediately. Error: {stderr}")
             except:
-                logger.error("H.264 camera process exited immediately")
+                logger.error("Camera process exited immediately")
+            h264_stderr.close()
             return False
 
         with camera_process_lock:
-            current_camera_process = process
+            current_camera_process = camera_process
             camera_running = True
 
         logger.info("H.264 hardware-accelerated camera started successfully")
-        logger.info("H.264 stream piping to ffmpeg for HLS")
+        logger.info("HLS streaming active for web UI")
         
         return True
     except Exception as e:
@@ -1125,6 +1154,178 @@ def start_stream():
         logger.info("Waiting for ffmpeg to be ready for new connection...")
         time.sleep(2)  # Give ffmpeg time to restart and listen
         threading.Thread(target=start_h264_camera, daemon=True).start()
+
+
+# ============================================================================
+# VLC Streaming (Low Latency Direct H.264 Stream via TCP)
+# ============================================================================
+
+def vlc_buffer_reader():
+    """Background thread that continuously reads from camera and buffers chunks"""
+    global vlc_stream_buffer
+    fifo_path = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
+    
+    try:
+        logger.info("VLC buffer thread: Opening FIFO for reading...")
+        with open(fifo_path, 'rb', buffering=0) as fifo:
+            logger.info("VLC buffer thread: Connected to camera FIFO")
+            while True:
+                chunk = fifo.read(8192)
+                if not chunk:
+                    logger.warning("VLC buffer thread: No data from FIFO")
+                    break
+                
+                # Add chunk to circular buffer
+                with vlc_buffer_lock:
+                    vlc_stream_buffer.append(chunk)
+                    # Keep buffer size limited
+                    if len(vlc_stream_buffer) > vlc_buffer_max_chunks:
+                        vlc_stream_buffer.pop(0)
+                        
+    except Exception as e:
+        logger.error(f"VLC buffer thread error: {e}")
+    finally:
+        logger.info("VLC buffer thread: Exiting")
+
+
+def start_vlc_camera():
+    """Start camera in VLC streaming mode - direct H.264 output"""
+    global current_camera_process, camera_running
+    
+    logger.info("Starting camera in VLC streaming mode")
+    
+    rotation = int(settings.get('rotation', 0))
+    
+    # Build rpicam-vid command for TCP streaming (no transcoding)
+    cmd = [
+        'rpicam-vid',
+        '--nopreview',
+        '--codec', 'h264',
+        '--width', str(settings['width']),
+        '--height', str(settings['height']),
+        '--framerate', str(settings['framerate']),
+        '--timeout', '0',
+        '--brightness', str(settings['brightness']),
+        '--contrast', str(settings['contrast']),
+        '--saturation', str(settings['saturation']),
+        '--sharpness', str(settings['sharpness']),
+        '--exposure', settings['exposure'],
+        '--metering', settings['metering'],
+        '--awb', settings['awb'],
+        '--inline',
+        '-o', '-'  # Output to stdout
+    ]
+    
+    # Add rotation if not 90/270 (those require transcoding)
+    if rotation in (0, 180):
+        cmd.extend(['--rotation', str(rotation)])
+    
+    # Add advanced settings
+    if settings['ev'] != 0:
+        cmd.extend(['--ev', str(settings['ev'])])
+    if settings['shutter'] > 0:
+        cmd.extend(['--shutter', str(settings['shutter'])])
+    if settings['gain'] > 0:
+        cmd.extend(['--gain', str(settings['gain'])])
+    if settings['denoise'] != 'auto':
+        cmd.extend(['--denoise', settings['denoise']])
+    if settings['hdr'] != 'off':
+        cmd.extend(['--hdr', settings['hdr']])
+    if settings['hflip']:
+        cmd.append('--hflip')
+    if settings['vflip']:
+        cmd.append('--vflip')
+    
+    # Apply digital zoom (ROI)
+    zoom_factor = float(settings.get('zoom', 1.0))
+    if zoom_factor > 1.0:
+        w = 1.0 / zoom_factor
+        h = 1.0 / zoom_factor
+        x = (1.0 - w) / 2.0
+        y = (1.0 - h) / 2.0
+        cmd.extend(['--roi', f"{x},{y},{w},{h}"])
+    
+    log_file = os.path.join(os.path.dirname(__file__), 'vlc_camera.log')
+    fifo_path = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
+    
+    # Remove old FIFO if exists
+    try:
+        if os.path.exists(fifo_path):
+            os.remove(fifo_path)
+    except Exception as e:
+        logger.error(f"Failed to remove old FIFO: {e}")
+    
+    try:
+        # Output to stdout (we'll read it directly)
+        full_cmd = ' '.join(cmd)
+        logger.info(f"VLC camera command: {full_cmd}")
+        
+        global h264_stderr
+        if h264_stderr and not h264_stderr.closed:
+            try:
+                h264_stderr.close()
+            except:
+                pass
+        
+        h264_stderr = open(log_file, 'wb', buffering=0)
+        camera_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=h264_stderr,
+            start_new_session=True
+        )
+        
+        time.sleep(1)
+        if camera_process.poll() is not None:
+            try:
+                with open(log_file, 'r') as f:
+                    stderr = f.read()
+                logger.error(f"VLC camera exited immediately. Error: {stderr}")
+            except:
+                logger.error("VLC camera exited immediately")
+            h264_stderr.close()
+            return False
+        
+        with camera_process_lock:
+            current_camera_process = camera_process
+            camera_running = True
+        
+        logger.info("VLC camera started successfully")
+        logger.info(f"Stream URL: http://192.168.0.169:5000/stream.h264")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to start VLC camera: {e}")
+        return False
+
+
+def generate_vlc_stream():
+    """Generator that yields H.264 stream directly from camera process stdout"""
+    global current_camera_process
+    
+    logger.info("VLC HTTP client connecting...")
+    
+    try:
+        # Read directly from camera process stdout
+        with camera_process_lock:
+            if not current_camera_process or current_camera_process.poll() is not None:
+                logger.error("Camera not running for VLC stream")
+                return
+            
+            process = current_camera_process
+        
+        # Read camera output directly and stream it
+        while True:
+            chunk = process.stdout.read(8192)
+            if not chunk:
+                logger.warning("No data from camera")
+                break
+            yield chunk
+            
+    except GeneratorExit:
+        logger.info("VLC HTTP client disconnected")
+    except Exception as e:
+        logger.error(f"VLC stream error: {e}")
+
 
 def generate_frames():
     """Capture frames using optimized method - try rpicam-vid first, fallback to rpicam-still"""
@@ -1290,7 +1491,55 @@ def generate_frames():
 
 @app.route('/')
 def index():
+    """Landing page - choose between web UI or VLC streaming"""
+    try:
+        with open(LANDING_PAGE, 'r') as f:
+            return f.read()
+    except:
+        return '''
+        <html><body>
+        <h1>picamctl</h1>
+        <p><a href="/web">Web Browser Mode</a> - Full camera control with HLS streaming</p>
+        <p><a href="/vlc">VLC Streaming Mode</a> - Low latency direct H.264 stream</p>
+        </body></html>
+        '''
+
+@app.route('/web')
+def web_mode():
+    """Full web UI with HLS streaming"""
+    global streaming_mode
+    with streaming_mode_lock:
+        if streaming_mode != 'hls':
+            # Switch to HLS mode
+            stop_camera_process()
+            streaming_mode = 'hls'
+            threading.Thread(target=start_h264_camera, daemon=True).start()
+            time.sleep(2)  # Wait for camera to start
     return render_template_string(get_html())
+
+@app.route('/vlc')
+def vlc_mode():
+    """VLC streaming page"""
+    global streaming_mode
+    with streaming_mode_lock:
+        if streaming_mode != 'vlc':
+            # Switch to VLC mode
+            stop_camera_process()
+            streaming_mode = 'vlc'
+            threading.Thread(target=start_vlc_camera, daemon=True).start()
+            time.sleep(2)  # Wait for camera to start
+    try:
+        with open(VLC_PAGE, 'r') as f:
+            return f.read()
+    except:
+        return '''
+        <html><body>
+        <h1>VLC Streaming</h1>
+        <p>Stream URL: http://''' + request.host + '''/stream.h264</p>
+        <p>Open this URL in VLC Media Player (Media → Open Network Stream)</p>
+        <p><a href="/">Back to Mode Selection</a></p>
+        </body></html>
+        '''
 
 @app.route('/hls/<path:filename>')
 def serve_hls(filename):
@@ -1314,6 +1563,7 @@ def get_settings():
 @app.route('/system_info')
 def get_system_info():
     """Get system information for display"""
+    global streaming_mode
     import socket
     import shutil
     
@@ -1341,8 +1591,37 @@ def get_system_info():
     return jsonify({
         'ip': ip_address,
         'disk': disk_info,
-        'bandwidth': bandwidth_kbps
+        'bandwidth': bandwidth_kbps,
+        'vlc_stream_running': (streaming_mode == 'vlc')
     })
+
+
+@app.route('/api/stop_vlc_mode', methods=['POST'])
+def stop_vlc_mode_endpoint():
+    """Stop VLC mode and return to landing page"""
+    global streaming_mode
+    with streaming_mode_lock:
+        streaming_mode = 'hls'  # Reset to default
+    stop_camera_process()
+    return jsonify({'success': True})
+
+
+@app.route('/stream.h264')
+def stream_h264():
+    """Direct H.264 stream for VLC (low latency) - only works in VLC mode"""
+    if streaming_mode != 'vlc':
+        return jsonify({'error': 'VLC mode not active'}), 400
+    
+    return Response(
+        generate_vlc_stream(),
+        mimetype='video/h264',
+        headers={
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+        }
+    )
+
 
 @app.route('/snapshot', methods=['POST'])
 def take_snapshot():
@@ -1469,6 +1748,9 @@ def apply_settings():
     new_settings['width'] = validated_res['width']
     new_settings['height'] = validated_res['height']
     settings.update(new_settings)
+    
+    # Save settings to disk immediately after updating
+    save_settings()
 
     # Determine if restart is needed
     # Only restart for settings that require rpicam-vid restart
@@ -1489,8 +1771,7 @@ def apply_settings():
         threading.Thread(target=start_stream, daemon=True).start()
     else:
         logger.info(f"No restart needed for settings: {list(new_settings.keys())}")
-        # For settings that don't require restart (zoom, brightness, contrast, etc),
-        # just save them - they'll be picked up when stream restarts naturally
+        # Settings are already saved above
 
     response = {'status': 'ok', 'resolution': f"{validated_res['width']}x{validated_res['height']}"}
     if warning:
@@ -1581,7 +1862,7 @@ if __name__ == '__main__':
         threading.Thread(target=start_h264_camera, daemon=True).start()
         time.sleep(1)  # Give camera time to initialize
 
-    logger.info("Starting camera control interface...")
+    logger.info("Starting picamctl interface...")
     logger.info("Access at: http://<your-pi-ip>:5000 (replace with your host IP)")
     logger.info(f"Hardware acceleration: {'enabled (H.264)' if use_hw_acceleration else 'disabled (MJPEG)'}")
 

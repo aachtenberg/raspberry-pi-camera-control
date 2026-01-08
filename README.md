@@ -1,103 +1,65 @@
-# Raspberry Pi Camera Control with H.264 HLS
+# picamctl - Raspberry Pi Camera Control
 
-A web-based camera control interface for Raspberry Pi Camera 3 with hardware-accelerated H.264 streaming.
-
-## Hardware Compatibility
-
-**Tested on**: Raspberry Pi Zero 2 W  
-**Should work on**: Any Raspberry Pi with camera support (Pi 3, Pi 4, Pi 5, etc.)
-
-### OS Compatibility
-
-✅ **Raspberry Pi OS Lite (64-bit) - RECOMMENDED**
-- Tested on: Debian GNU/Linux 13 (trixie), kernel 6.12.47+rpt-rpi-v8
-- All camera features work out of the box
-- Hardware H.264 encoding fully supported
-- rpicam-apps work without any configuration
-
-⚠️ **DietPi - NOT COMPATIBLE**
-
-DietPi has a critical compatibility issue with `rpicam-apps` (including `rpicam-vid` used by this project):
-
-**The Issue**: rpicam-apps performs platform detection by checking for V4L2 video devices (`/dev/video*`) with the card name `bcm2835-isp` or `pispbe`. These devices are created by the Raspberry Pi's Image Signal Processor (ISP) driver. DietPi's kernel configuration does not include these ISP drivers, causing rpicam-apps to fail platform detection and refuse to run.
-
-**Why This Happens**: 
-- rpicam-apps source code (options.cpp#L163-L189, rpicam_app.cpp#L78-L102) explicitly checks for these V4L2 devices
-- This is an intentional design decision to ensure rpicam-apps runs only on proper Raspberry Pi hardware with correct ISP drivers
-- DietPi is a third-party OS not officially supported by the Raspberry Pi Foundation
-- The rpicam-apps developers state "contributions for other platforms are welcome", indicating this is by design
-
-**Workaround**: None. Use Raspberry Pi OS Lite instead.
-
-**Recommendation**: Install **Raspberry Pi OS Lite (64-bit)** for immediate compatibility without any platform detection issues.
+A modern web-based camera control interface for Raspberry Pi Camera with dual streaming modes:
+- **Web Browser Mode**: Full-featured web UI with HLS streaming
+- **VLC Mode**: Low-latency direct H.264 streaming for VLC player
 
 ## Features
 
-✅ **H.264 Hardware Acceleration** - Uses rpicam-vid with hardware H.264 encoding  
-✅ **HLS Streaming** - Low-latency HTTP Live Streaming via ffmpeg  
-✅ **Web Interface** - Modern HTML5 video player with HLS.js  
-✅ **Camera Controls** - Full control over resolution, framerate, exposure, white balance, etc.  
-✅ **Systemd Service** - Runs reliably as a background service  
-✅ **No Zombie Processes** - Proper subprocess management prevents defunct processes  
+✅ **Dual Streaming Modes** - Choose between web UI or direct VLC streaming  
+✅ **H.264 Hardware Acceleration** - Uses rpicam-vid with hardware encoding  
+✅ **Modern Dark Theme** - Consistent dark blue UI across all pages  
+✅ **Landing Page** - Simple mode selection interface  
+✅ **Full Camera Controls** - Resolution, framerate, exposure, white balance, etc.  
+✅ **Systemd Service** - Runs reliably as a background service with auto-start  
+✅ **No Zombie Processes** - Proper subprocess management  
 
-## Recent Changes ✅
-- Snapshot fixes: snapshots now temporarily pause the stream, capture with `rpicam-still`, then automatically restart; snapshot auto-download works in the UI. 📸
-- Reboot implemented: **Reboot Device** button now restarts the camera service and shows a full-screen "Rebooting..." overlay. 🔁
-- UI & UX improvements: play/pause fixes (resume after Stop), snapshot button preserves icon while disabled, timestamp moved to bottom-left. 🎛️
-- Resolution guidance: HD modes restored (1080p/720p) with a recommendation to use lower resolutions on Pi Zero 2 W for stability. ⚠️
-
-
-## Architecture
+## Project Structure
 
 ```
-┌─────────────────┐
-│  rpicam-vid     │  Hardware H.264 encoding
-│  (Pi Camera 3)  │  640x480 @ 10fps
-└────────┬────────┘
-         │ TCP stream (tcp://0.0.0.0:8888)
-         ▼
-┌─────────────────┐
-│     ffmpeg      │  Convert H.264 → HLS segments
-│  HLS Converter  │  2-second segments, rolling window
-└────────┬────────┘
-         │ HLS files (stream.m3u8 + segments)
-         ▼
-┌─────────────────┐
-│  Flask Server   │  Serve web UI and HLS stream
-│   Port 5000     │  http://<PI_HOST>:5000
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   Web Browser   │  HLS.js video player
-│  (Any device)   │  HTML5 <video> element
-└─────────────────┘
+raspberry-pi-camera-control/
+├── picamctl.py              # Main Flask application
+├── picamctl_settings.json   # Camera settings (auto-generated)
+├── templates/               # HTML templates
+│   ├── landing.html         # Mode selection page
+│   ├── garage_cam_template.html  # Full web UI
+│   └── vlc_stream.html      # VLC streaming page
+├── scripts/                 # Management scripts
+│   ├── check_dependencies.sh    # Check/install dependencies
+│   ├── deploy_to_pi.sh         # Deploy to Raspberry Pi
+│   ├── manage_service.sh       # Service management (on Pi)
+│   └── README.md              # Scripts documentation
+├── systemd/                 # Systemd service file
+│   └── picamctl.service
+└── README.md               # This file
 ```
 
 ## Quick Start
 
-### 1. Check Dependencies
+### 1. Set Environment Variables
 ```bash
-./check_dependencies.sh
+export PI_USER=pi            # Your Pi username
+export PI_HOST=your_pi_host  # Pi hostname or IP
 ```
 
-This checks and installs:
-- `ffmpeg` - HLS converter
-- `rpicam-vid` - Camera control
-- `flask` - Web server
-
-### 2. Deploy to Pi
+### 2. Check Dependencies
 ```bash
-./deploy_to_pi.sh
+./scripts/check_dependencies.sh
 ```
 
-This will:
-- Copy all files to `/home/<user>/camera_control/` (or set `REMOTE_DIR` in `deploy_to_pi.sh`)
-- Install/update the systemd service
-- Restart the camera-control service
-- Show service status
+Installs required packages:
+- ffmpeg, rpicam-vid
+- Python3, pip3, Flask
 
-### 3. Access Web Interface
+### 3. Deploy to Pi
+```bash
+./scripts/deploy_to_pi.sh
+```
+
+Copies files, installs service, and starts camera.
+
+### 4. Access Interface
+Open browser to `http://pizero2:5000` (or your Pi's IP)
 Open in your browser:
 ```
 http://<PI_HOST>:5000
@@ -128,27 +90,27 @@ CI: A GitHub Actions workflow runs `detect-secrets` on pushes and pull requests 
 
 ```bash
 # Check status
-sudo systemctl status camera-control
+sudo systemctl status picamctl
 
 # View logs
-sudo journalctl -u camera-control -f
+sudo journalctl -u picamctl -f
 
 # Restart
-sudo systemctl restart camera-control
+sudo systemctl restart picamctl
 
 # Stop
-sudo systemctl stop camera-control
+sudo systemctl stop picamctl
 
 # Start
-sudo systemctl start camera-control
+sudo systemctl start picamctl
 ```
 
 ## Files
 
-- `camera_control.py` - Main Flask application with H.264 streaming
+- `picamctl.py` - Main Flask application with H.264 streaming
 - `garage_cam_template.html` - Web UI with HLS.js player
-- `camera_settings.json` - Saved camera settings
-- `camera-control.service` - Systemd service file
+- `picamctl_settings.json` - Saved camera settings
+- `picamctl.service` - Systemd service file
 - `manage_service.sh` - Service management helper
 - `deploy_to_pi.sh` - Deployment script
 - `check_dependencies.sh` - Dependency checker
@@ -210,7 +172,8 @@ Tested configuration:
 ### No video in browser
 1. Check if HLS segments are being created:
    ```bash
-   ssh <user>@<host> 'ls -lh /home/<user>/camera_control/hls_segments/'
+   ssh <user>@<host> 'ls -lh /home/<user>/picamctl/hls_segments/'
+   ```
 
 2. Check if processes are running:
    ```bash
@@ -218,7 +181,8 @@ Tested configuration:
 
 3. Check service logs:
    ```bash
-   ssh <user>@<host> 'sudo journalctl -u camera-control -f'
+   ssh <user>@<host> 'sudo journalctl -u picamctl -f'
+   ```
 
 ### Zombie processes
 Fixed! The new implementation uses:
