@@ -21,7 +21,7 @@
         /* Top Bar */
         .top-bar {
             background: #1a1f3a;
-            padding: 12px 20px;
+            padding: 10px 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -30,30 +30,48 @@
         }
         .top-left {
             display: flex;
-            flex-direction: column;
-        }
-        .camera-name {
-            font-size: 32px;
-            font-weight: 600;
-            color: #e0e0e0;
-            display: flex;
             align-items: center;
             gap: 12px;
+            flex: 1;
+            font-size: 12px;
         }
-        .camera-name .status-icon {
-            width: 10px;
-            height: 10px;
+        .top-center {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+        }
+        .camera-name {
+            font-size: 22px;
+            font-weight: 600;
+            color: #e0e0e0;
         }
         .ip-address {
             font-size: 12px;
             color: #4A9EFF;
-            margin-top: 2px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .ip-address .status-icon {
+            width: 6px;
+            height: 6px;
+            background: #4A9EFF;
+            opacity: 0.6;
+        }
+        .mqtt-status-inline {
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
         }
         .top-right {
             display: flex;
             align-items: center;
+            justify-content: flex-end;
             gap: 20px;
             font-size: 12px;
+            flex: 1;
         }
         .status-item {
             display: flex;
@@ -450,11 +468,19 @@
     <!-- Top Bar -->
     <div class="top-bar">
         <div class="top-left">
+            <div class="ip-address">
+                <span class="status-icon"></span>
+                <span id="ip-address">Loading...</span>
+            </div>
+            <div class="mqtt-status-inline">
+                <span class="status-icon" id="mqtt-status-icon"></span>
+                <span id="mqtt-status">MQTT: --</span>
+            </div>
+        </div>
+        <div class="top-center">
             <div class="camera-name">
-                <span class="status-icon status-ok" id="camera-status-icon"></span>
                 <span id="camera-name">Garage Cam</span>
             </div>
-            <div class="ip-address" id="ip-address">Loading...</div>
         </div>
         <div class="top-right">
             <div class="status-item">
@@ -470,7 +496,7 @@
                 <span id="bandwidth-status">0 Kbps</span>
             </div>
             <div class="status-item">
-                <span class="status-icon"></span>
+                <span class="status-icon" id="hdr-status-icon"></span>
                 <span id="hdr-status">HDR: Off</span>
             </div>
             <svg class="settings-icon" onclick="toggleSettings()" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
@@ -903,11 +929,26 @@
             fetch('/system_info')
                 .then(r => r.json())
                 .then(data => {
-                    document.getElementById('ip-address').textContent = data.ip;
+                    document.getElementById('ip-address').textContent = 'ip: ' + data.ip;
                     document.getElementById('system-ip').textContent = data.ip;
                     document.getElementById('disk-status').textContent = data.disk;
                     document.getElementById('system-disk').textContent = data.disk;
                     document.getElementById('bandwidth-status').textContent = (data.bandwidth || 0).toFixed(2) + ' Kbps';
+                    
+                    // Update MQTT status
+                    const mqttStatus = document.getElementById('mqtt-status');
+                    const mqttIcon = document.getElementById('mqtt-status-icon');
+                    if (data.mqtt_connected) {
+                        mqttStatus.textContent = 'MQTT: Connected';
+                        mqttStatus.style.color = '#4CAF50';
+                        mqttIcon.classList.add('status-ok');
+                        mqttIcon.classList.remove('status-error');
+                    } else {
+                        mqttStatus.textContent = 'MQTT: Disconnected';
+                        mqttStatus.style.color = '#888';
+                        mqttIcon.classList.remove('status-ok');
+                        mqttIcon.classList.add('status-error');
+                    }
                     
                     // Update VLC button state
                     const vlcBtn = document.getElementById('vlc-btn');
@@ -1629,10 +1670,17 @@
 
         function updateHDRStatus(hdrValue) {
             const hdrStatus = document.getElementById('hdr-status');
+            const hdrIcon = document.getElementById('hdr-status-icon');
             if (hdrStatus) {
                 const statusText = hdrValue === 'off' ? 'HDR: Off' : `HDR: ${hdrValue.charAt(0).toUpperCase() + hdrValue.slice(1)}`;
                 hdrStatus.textContent = statusText;
-                hdrStatus.style.color = hdrValue === 'off' ? '#888' : '#4A9EFF';
+                if (hdrValue === 'off') {
+                    hdrStatus.style.color = '#888';
+                    hdrIcon.classList.remove('status-ok');
+                } else {
+                    hdrStatus.style.color = '#4CAF50';
+                    hdrIcon.classList.add('status-ok');
+                }
             }
         }
 
