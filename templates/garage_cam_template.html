@@ -471,7 +471,7 @@
         <div class="top-left">
             <div class="ip-address">
                 <span class="status-icon" aria-hidden="true"></span>
-                <span id="ip-address">Loading...</span>
+                <span id="ip-address">🌐 Loading...</span>
             </div>
             <div class="mqtt-status-inline">
                 <span class="status-icon" id="mqtt-status-icon" aria-hidden="true"></span>
@@ -486,15 +486,15 @@
         <div class="top-right">
             <div class="status-item">
                 <span class="status-icon"></span>
-                <span id="motion-status">0 Motion</span>
+                <span id="motion-status">👁️ 0 Motion</span>
             </div>
             <div class="status-item">
                 <span class="status-icon"></span>
-                <span id="disk-status">Loading...</span>
+                <span id="disk-status">💾 Loading...</span>
             </div>
             <div class="status-item">
                 <span class="status-icon"></span>
-                <span id="bandwidth-status">0 Kbps</span>
+                <span id="bandwidth-status">📊 0 Kbps</span>
             </div>
             <div class="status-item">
                 <span class="status-icon" id="hdr-status-icon"></span>
@@ -930,11 +930,11 @@
             fetch('/system_info')
                 .then(r => r.json())
                 .then(data => {
-                    document.getElementById('ip-address').textContent = 'ip: ' + data.ip;
+                    document.getElementById('ip-address').textContent = '🌐 ' + data.ip;
                     document.getElementById('system-ip').textContent = data.ip;
-                    document.getElementById('disk-status').textContent = data.disk;
+                    document.getElementById('disk-status').textContent = '💾 ' + data.disk;
                     document.getElementById('system-disk').textContent = data.disk;
-                    document.getElementById('bandwidth-status').textContent = (data.bandwidth || 0).toFixed(2) + ' Kbps';
+                    document.getElementById('bandwidth-status').textContent = '📊 ' + (data.bandwidth || 0).toFixed(2) + ' Kbps';
                     
                     // Update MQTT status with defensive check
                     const mqttStatus = document.getElementById('mqtt-status');
