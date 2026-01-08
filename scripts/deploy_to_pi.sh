@@ -5,8 +5,13 @@
 
 # Set these (or export PI_USER and PI_HOST in your environment)
 PI_USER="${PI_USER:-pi}"
-PI_HOST="${PI_HOST:-<PI_HOST>}"
+PI_HOST="${PI_HOST:-your-pi-hostname}"
 REMOTE_DIR="/home/${PI_USER}/picamctl"
+
+if [ "$PI_HOST" = "your-pi-hostname" ]; then
+  echo "Error: PI_HOST is not set. Please export PI_HOST or edit scripts/deploy_to_pi.sh to set your Raspberry Pi hostname."
+  exit 1
+fi
 
 echo "🚀 Deploying picamctl to Pi..."
 

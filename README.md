@@ -38,8 +38,8 @@ raspberry-pi-camera-control/
 
 ### 1. Set Environment Variables
 ```bash
-export PI_USER=aachten       # Your Pi username
-export PI_HOST=pizero2       # Pi hostname or IP
+export PI_USER=pi            # Your Pi username
+export PI_HOST=your_pi_host  # Pi hostname or IP
 ```
 
 ### 2. Check Dependencies
