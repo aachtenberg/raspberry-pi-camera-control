@@ -32,7 +32,6 @@ h264_stderr = None  # Keep file handle alive to prevent zombie process
 ffmpeg_stderr = None  # Keep file handle alive to prevent zombie process
 
 # VLC streaming (low latency direct H.264 stream)
-vlc_stream_process = None
 vlc_stream_lock = threading.Lock()
 vlc_stream_running = False
 vlc_stream_clients = []  # List of connected clients
@@ -878,9 +877,10 @@ def stop_camera_process():
         
         time.sleep(0.5)  # Give them time to die
         
+        # Stop camera process
         if current_camera_process and current_camera_process.poll() is None:
             try:
-                logger.info("Stopping current camera process...")
+                logger.info("Stopping camera process...")
                 current_camera_process.terminate()
                 current_camera_process.wait(timeout=2)
                 logger.info("Camera process stopped")
@@ -891,6 +891,14 @@ def stop_camera_process():
                 except:
                     pass
             current_camera_process = None
+        
+        # Clean up FIFO
+        vlc_fifo = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
+        try:
+            if os.path.exists(vlc_fifo):
+                os.remove(vlc_fifo)
+        except:
+            pass
         
         logger.info("Camera processes stopped")
 
@@ -918,7 +926,7 @@ def start_h264_camera():
     needs_transpose = rotation in (90, 270)
     transpose_filter = 'transpose=1' if rotation == 90 else 'transpose=2'
 
-    # Use simpler H.264 encoding - output to stdout
+    # Use H.264 encoding - output to stdout, then use process substitution to split stream
     cmd = [
         'rpicam-vid',
         '--nopreview',
@@ -935,7 +943,7 @@ def start_h264_camera():
         '--metering', settings['metering'],
         '--awb', settings['awb'],
         '--inline',  # Inline headers for streaming
-        '-o', '-'  # Output to stdout for piping
+        '-o', '-'  # Output to stdout
     ]
 
     # rpicam-vid cannot rotate 90/270 with H.264; offload to ffmpeg when needed
@@ -968,13 +976,13 @@ def start_h264_camera():
         y = (1.0 - h) / 2.0
         cmd.extend(['--roi', f"{x},{y},{w},{h}"])
 
-    # Build ffmpeg command
+    # Build ffmpeg command - read from stdin (will be piped from tee)
     ffmpeg_cmd = [
         'ffmpeg',
         '-hide_banner',
         '-loglevel', 'warning',
         '-f', 'h264',
-        '-i', '-',  # Read raw H.264 from stdin
+        '-i', '-',  # Read from stdin
     ]
 
     if needs_transpose:
@@ -1001,60 +1009,75 @@ def start_h264_camera():
         os.path.join(HLS_DIR, 'stream.m3u8')
     ])
 
-    # Combine commands with pipe - AFTER all rpicam-vid args are added
-    full_cmd = ' '.join(cmd) + ' | ' + ' '.join(ffmpeg_cmd)
-
+    # Create FIFO for VLC streaming if it doesn't exist
+    vlc_fifo = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
+    if os.path.exists(vlc_fifo):
+        os.remove(vlc_fifo)
+    os.mkfifo(vlc_fifo)
+    
+    # Use tee to split stream: one to ffmpeg (HLS), one to FIFO (VLC)
+    # Full command: rpicam-vid | tee >(ffmpeg ... HLS) > vlc_stream.fifo
+    camera_cmd = ' '.join(cmd)
+    ffmpeg_cmd_str = ' '.join(ffmpeg_cmd)
+    
+    # Combined command with process substitution
+    full_cmd = f"{camera_cmd} | tee >({ffmpeg_cmd_str}) > {vlc_fifo}"
+    
     # Log file for debugging
-    log_file = os.path.join(os.path.dirname(__file__), 'h264_camera.log')
+    log_file = os.path.join(os.path.dirname(__file__), 'camera.log')
 
     try:
-        logger.info(f"Starting H.264 camera with command: {full_cmd}")
+        logger.info(f"Starting H.264 camera with split output (HLS + VLC FIFO)")
+        logger.info(f"Command: {full_cmd}")
         
-        # Close previous log file if it exists
-        global h264_stderr, current_camera_process
+        # Close previous log file if exists
+        global h264_stderr, current_camera_process, ffmpeg_process
         if h264_stderr and not h264_stderr.closed:
             try:
                 h264_stderr.close()
             except:
                 pass
         
-        # Open log file for stderr - must keep open for process lifetime
-        h264_stderr = open(log_file, 'wb', buffering=0)  # Unbuffered binary mode
-        
-        # CRITICAL: Use devnull for stdout and file for stderr to prevent zombie process
-        process = subprocess.Popen(
+        # Start the combined command
+        h264_stderr = open(log_file, 'wb', buffering=0)
+        camera_process = subprocess.Popen(
             full_cmd,
             shell=True,
+            executable='/bin/bash',  # Required for process substitution
             stdout=subprocess.DEVNULL,
             stderr=h264_stderr,
-            start_new_session=True  # Detach from parent process
+            start_new_session=True
         )
         
-        # Save process reference
-        current_camera_process = process
-
-        # Wait a moment and check if process is still running
-        time.sleep(2)  # Increased wait for ffmpeg to initialize
-        if process.poll() is not None:
-            # Process exited, read stderr
+        # Wait and check if process started successfully
+        time.sleep(2)
+        if camera_process.poll() is not None:
             try:
                 with open(log_file, 'r') as f:
                     stderr = f.read()
-                logger.error(f"H.264 camera process exited immediately. Error: {stderr}")
+                logger.error(f"Camera process exited immediately. Error: {stderr}")
             except:
-                logger.error("H.264 camera process exited immediately")
+                logger.error("Camera process exited immediately")
+            h264_stderr.close()
             return False
 
         with camera_process_lock:
-            current_camera_process = process
+            current_camera_process = camera_process
             camera_running = True
 
         logger.info("H.264 hardware-accelerated camera started successfully")
-        logger.info("H.264 stream piping to ffmpeg for HLS")
+        logger.info("Stream split: ffmpeg (HLS) + FIFO (VLC)")
         
         return True
     except Exception as e:
         logger.error(f"Failed to start H.264 camera: {e}")
+        # Clean up FIFO on error
+        vlc_fifo = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
+        try:
+            if os.path.exists(vlc_fifo):
+                os.remove(vlc_fifo)
+        except:
+            pass
         return False
 
 def run_ffmpeg_hls_converter():
@@ -1138,82 +1161,24 @@ def start_stream():
 # ============================================================================
 
 def start_vlc_stream():
-    """Start direct H.264 stream for VLC (low latency)"""
-    global vlc_stream_process, vlc_stream_running
+    """Start direct H.264 stream for VLC (low latency) - connects to existing TCP stream"""
+    global vlc_stream_running
     
     with vlc_stream_lock:
         if vlc_stream_running:
             logger.info("VLC stream already running")
             return True
         
-        try:
-            # Build rpicam-vid command for H.264 output to stdout
-            cmd = [
-                'rpicam-vid',
-                '--nopreview',
-                '--codec', 'h264',
-                '--width', str(settings['width']),
-                '--height', str(settings['height']),
-                '--framerate', str(settings['framerate']),
-                '--timeout', '0',  # Run indefinitely
-                '--inline',  # Inline headers for streaming
-                '--listen',  # Listen mode for clients
-                '-o', '-'  # Output to stdout
-            ]
-            
-            # Add camera settings
-            cmd.extend(['--brightness', str(settings['brightness'])])
-            cmd.extend(['--contrast', str(settings['contrast'])])
-            cmd.extend(['--saturation', str(settings['saturation'])])
-            cmd.extend(['--sharpness', str(settings['sharpness'])])
-            cmd.extend(['--exposure', settings['exposure']])
-            cmd.extend(['--metering', settings['metering']])
-            cmd.extend(['--awb', settings['awb']])
-            
-            rotation = int(settings.get('rotation', 0))
-            if rotation != 0:
-                cmd.extend(['--rotation', str(rotation)])
-            
-            if settings.get('hflip', False):
-                cmd.append('--hflip')
-            if settings.get('vflip', False):
-                cmd.append('--vflip')
-            
-            # Add advanced settings if not default
-            if settings.get('ev', 0) != 0:
-                cmd.extend(['--ev', str(settings['ev'])])
-            if settings.get('shutter', 0) > 0:
-                cmd.extend(['--shutter', str(settings['shutter'])])
-            if settings.get('gain', 0) > 0:
-                cmd.extend(['--gain', str(settings['gain'])])
-            if settings.get('denoise', 'auto') != 'auto':
-                cmd.extend(['--denoise', settings['denoise']])
-            if settings.get('hdr', 'off') != 'off':
-                cmd.extend(['--hdr', settings['hdr']])
-            
-            logger.info(f"Starting VLC stream: {' '.join(cmd)}")
-            
-            # Start process - output goes to stdout, clients will read from it
-            vlc_stream_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                bufsize=0  # Unbuffered for low latency
-            )
-            
-            vlc_stream_running = True
-            logger.info("VLC stream started successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to start VLC stream: {e}")
-            vlc_stream_running = False
-            return False
+        # VLC stream just marks that we're ready to serve clients
+        # The actual streaming happens in generate_vlc_stream() by connecting to TCP
+        vlc_stream_running = True
+        logger.info("VLC stream enabled - clients can now connect to /stream.h264")
+        return True
 
 
 def stop_vlc_stream():
     """Stop VLC stream"""
-    global vlc_stream_process, vlc_stream_running, vlc_stream_clients
+    global vlc_stream_running, vlc_stream_clients
     
     with vlc_stream_lock:
         if not vlc_stream_running:
@@ -1224,51 +1189,33 @@ def stop_vlc_stream():
         # Clear all clients
         vlc_stream_clients.clear()
         
-        # Stop process
-        if vlc_stream_process:
-            try:
-                vlc_stream_process.terminate()
-                vlc_stream_process.wait(timeout=2)
-            except:
-                try:
-                    vlc_stream_process.kill()
-                    vlc_stream_process.wait()
-                except:
-                    pass
-            vlc_stream_process = None
-        
         vlc_stream_running = False
         logger.info("VLC stream stopped")
 
 
 def generate_vlc_stream():
-    """Generator that yields H.264 stream data for VLC clients"""
-    global vlc_stream_process, vlc_stream_running
-    
-    # Ensure stream is started
-    if not vlc_stream_running:
-        if not start_vlc_stream():
-            logger.error("Failed to start VLC stream for client")
-            return
-    
-    # Wait a moment for stream to initialize
-    time.sleep(0.5)
+    """Generator that yields H.264 stream data for VLC clients by reading from FIFO"""
+    vlc_fifo = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
     
     try:
-        logger.info("New VLC client connected")
+        logger.info("New VLC client connecting to stream FIFO...")
         
-        # Read from process stdout and yield chunks
-        while vlc_stream_running and vlc_stream_process:
-            try:
-                # Read in small chunks for low latency
-                chunk = vlc_stream_process.stdout.read(4096)
-                if not chunk:
-                    logger.warning("VLC stream ended, no more data")
+        # Open FIFO for reading (blocks until writer is ready)
+        with open(vlc_fifo, 'rb') as fifo:
+            logger.info("VLC client connected to H.264 stream")
+            
+            # Stream data to VLC client
+            while vlc_stream_running:
+                try:
+                    # Read data from FIFO
+                    chunk = fifo.read(8192)
+                    if not chunk:
+                        logger.warning("FIFO stream ended, no more data")
+                        break
+                    yield chunk
+                except Exception as e:
+                    logger.error(f"Error reading from FIFO: {e}")
                     break
-                yield chunk
-            except Exception as e:
-                logger.error(f"Error reading VLC stream: {e}")
-                break
         
         logger.info("VLC client disconnected")
         
