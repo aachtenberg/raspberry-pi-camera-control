@@ -462,6 +462,31 @@
                 width: 100%;
                 right: -100%;
             }
+            /* Compact mobile layout */
+            .top-bar {
+                padding: 8px 12px;
+                flex-wrap: wrap;
+            }
+            .top-left, .top-right {
+                font-size: 10px;
+                gap: 8px;
+            }
+            .top-center {
+                flex-basis: 100%;
+                order: -1;
+                margin-bottom: 6px;
+            }
+            .camera-name {
+                font-size: 18px;
+            }
+            .status-item {
+                gap: 3px;
+            }
+            /* Hide bandwidth and HDR on mobile to reduce clutter */
+            .status-item:has(#bandwidth-status),
+            .status-item:has(#hdr-status) {
+                display: none;
+            }
         }
     </style>
 </head>
