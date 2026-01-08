@@ -1167,8 +1167,7 @@ def start_vlc_camera():
         '--metering', settings['metering'],
         '--awb', settings['awb'],
         '--inline',
-        '--listen',  # Wait for TCP client
-        '-o', 'tcp://0.0.0.0:8888'  # TCP server on port 8888
+        '-o', '-'  # Output to stdout
     ]
     
     # Add rotation if not 90/270 (those require transcoding)
@@ -1201,10 +1200,20 @@ def start_vlc_camera():
         cmd.extend(['--roi', f"{x},{y},{w},{h}"])
     
     log_file = os.path.join(os.path.dirname(__file__), 'vlc_camera.log')
+    fifo_path = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
+    
+    # Create FIFO if it doesn't exist
+    try:
+        if os.path.exists(fifo_path):
+            os.remove(fifo_path)
+        os.mkfifo(fifo_path)
+    except Exception as e:
+        logger.error(f"Failed to create FIFO: {e}")
     
     try:
-        camera_cmd = ' '.join(cmd)
-        logger.info(f"VLC camera command: {camera_cmd}")
+        # Output directly to FIFO
+        full_cmd = ' '.join(cmd) + f' > {fifo_path}'
+        logger.info(f"VLC camera command: {full_cmd}")
         
         global h264_stderr
         if h264_stderr and not h264_stderr.closed:
@@ -1215,7 +1224,7 @@ def start_vlc_camera():
         
         h264_stderr = open(log_file, 'wb', buffering=0)
         camera_process = subprocess.Popen(
-            camera_cmd,
+            full_cmd,
             shell=True,
             stdout=subprocess.DEVNULL,
             stderr=h264_stderr,
@@ -1246,48 +1255,30 @@ def start_vlc_camera():
 
 
 def generate_vlc_stream():
-    """Generator that yields H.264 stream from TCP socket for HTTP clients"""
-    import socket
+    """Generator that yields H.264 stream from FIFO for HTTP clients"""
+    fifo_path = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
     
     try:
-        logger.info("VLC HTTP client connecting to TCP stream...")
+        logger.info("VLC HTTP client connecting to FIFO stream...")
         
-        # Connect to rpicam-vid's TCP server
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(10)
-        
-        try:
-            sock.connect(('127.0.0.1', 8888))
-            logger.info("VLC HTTP client connected to camera TCP stream")
-        except Exception as e:
-            logger.error(f"Failed to connect to camera TCP: {e}")
-            sock.close()
-            return
-        
-        sock.settimeout(0.5)
-        
-        # Stream data to HTTP client
-        while True:
-            try:
-                chunk = sock.recv(8192)
+        # Open FIFO for reading (this blocks until camera writes to it)
+        with open(fifo_path, 'rb', buffering=0) as fifo:
+            logger.info("VLC HTTP client connected to camera stream")
+            
+            # Stream data to HTTP client
+            while True:
+                chunk = fifo.read(8192)
                 if not chunk:
                     break
                 yield chunk
-            except socket.timeout:
-                continue
-            except Exception as e:
-                logger.error(f"Error streaming: {e}")
-                break
         
-        sock.close()
         logger.info("VLC HTTP client disconnected")
+        
+    except Exception as e:
+        logger.error(f"Error streaming from FIFO: {e}")
         
     except GeneratorExit:
         logger.info("VLC HTTP client closed")
-        try:
-            sock.close()
-        except:
-            pass
     except Exception as e:
         logger.error(f"VLC stream error: {e}")
 

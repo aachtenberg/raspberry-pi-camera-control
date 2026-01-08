@@ -216,8 +216,27 @@
             color: #ffd54f;
         }
         
+        .note.warning {
+            background: rgba(255, 152, 0, 0.1);
+            border-left: 4px solid #ff9800;
+            color: #ffb74d;
+        }
+        
+        .note.warning strong {
+            color: #ffb74d;
+        }
+        
         .note strong {
             color: #ffd54f;
+        }
+        
+        kbd {
+            background: #2a3150;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid #3a4160;
+            font-family: monospace;
+            font-size: 0.9em;
         }
         
         .control-buttons {
@@ -225,9 +244,23 @@
             gap: 15px;
             margin-top: 30px;
             justify-content: center;
+            flex-wrap: wrap;
         }
         
-        .btn {linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        .btn {
+            padding: 15px 30px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
         }
@@ -250,14 +283,6 @@
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
         }
-        
-        .btn-secondary {
-            background: #e0e0e0;
-            color: #333;
-        }
-        
-        .btn-secondary:hover {
-            background: #d0d0d0;
         }
         
         .btn:disabled {
@@ -305,7 +330,7 @@
                     <span class="step-number">2</span>
                     <div class="step-content">
                         <strong>Open Network Stream</strong><br>
-                        Go to Media → Open Network Stream (or press Ctrl+N)
+                        Go to <strong>Media → Open Network Stream</strong> (or press <kbd>Ctrl+N</kbd> / <kbd>Cmd+N</kbd>)
                     </div>
                 </div>
                 
@@ -313,7 +338,7 @@
                     <span class="step-number">3</span>
                     <div class="step-content">
                         <strong>Paste the Stream URL</strong><br>
-                        Copy the URL above and paste it into VLC
+                        Click "Copy" above and paste the TCP URL into VLC's network stream field
                     </div>
                 </div>
                 
@@ -321,12 +346,17 @@
                     <span class="step-number">4</span>
                     <div class="step-content">
                         <strong>Click Play</strong><br>
-                        The stream should start within 1-2 seconds with minimal latency
+                        The stream should start within 1-2 seconds with ~200-500ms latency
                     </div>
                 </div>
                 
+                <div class="note warning">
+                    <strong>⚠️ Important:</strong> The M3U playlist download below may not work with all media players. 
+                    For best results, <strong>manually copy the URL and paste it into VLC</strong> using Media → Open Network Stream.
+                </div>
+                
                 <div class="note">
-                    <strong>💡 Pro Tip:</strong> For the lowest latency, go to VLC's Tools → Preferences → Show settings: All → 
+                    <strong>💡 Pro Tip:</strong> For even lower latency, go to VLC's Tools → Preferences → Show settings: All → 
                     Input/Codecs and set "Network caching" to 100-300ms
                 </div>
             </div>
@@ -352,14 +382,48 @@
             const urlText = document.getElementById('stream-url').textContent;
             const btn = document.getElementById('copy-btn');
             
-            navigator.clipboard.writeText(urlText).then(() => {
+            // Try modern clipboard API first, fallback to older method
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(urlText).then(() => {
+                    btn.textContent = 'Copied!';
+                    btn.classList.add('copied');
+                    setTimeout(() => {
+                        btn.textContent = 'Copy';
+                        btn.classList.remove('copied');
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Clipboard error:', err);
+                    fallbackCopy(urlText, btn);
+                });
+            } else {
+                fallbackCopy(urlText, btn);
+            }
+        }
+        
+        function fallbackCopy(text, btn) {
+            // Fallback for older browsers or when clipboard API fails
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
                 btn.textContent = 'Copied!';
                 btn.classList.add('copied');
                 setTimeout(() => {
                     btn.textContent = 'Copy';
                     btn.classList.remove('copied');
                 }, 2000);
-            });
+            } catch (err) {
+                console.error('Copy failed:', err);
+                btn.textContent = 'Failed';
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                }, 2000);
+            }
+            document.body.removeChild(textarea);
         }
         
         function openInVLC() {
