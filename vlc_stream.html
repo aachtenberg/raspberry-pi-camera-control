@@ -303,7 +303,7 @@
             
             <div class="control-buttons">
                 <button class="btn btn-primary" onclick="openInVLC()">
-                    Open in VLC
+                    Download Playlist for VLC
                 </button>
                 <button class="btn btn-secondary" onclick="stopStream()">
                     Stop Stream
@@ -334,7 +334,24 @@
         
         function openInVLC() {
             const url = document.getElementById('stream-url').textContent;
-            window.location.href = `vlc://${url}`;
+            
+            // Create a .m3u playlist file that VLC can open
+            const playlistContent = `#EXTM3U\n#EXTINF:-1,Camera Stream\n${url}`;
+            const blob = new Blob([playlistContent], { type: 'audio/x-mpegurl' });
+            const downloadUrl = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = 'camera_stream.m3u';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(downloadUrl);
+            
+            // Show helpful message
+            setTimeout(() => {
+                alert('Playlist file downloaded! Open it with VLC Media Player to start streaming.');
+            }, 100);
         }
         
         function stopStream() {
