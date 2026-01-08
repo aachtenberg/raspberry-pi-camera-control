@@ -4,6 +4,7 @@
 # Usage: ./deploy_to_pi.sh
 
 # Set these (or export PI_USER and PI_HOST in your environment)
+[ -f .env ] && source .env
 PI_USER="${PI_USER:-pi}"
 PI_HOST="${PI_HOST:-your-pi-hostname}"
 REMOTE_DIR="/home/${PI_USER}/picamctl"
@@ -32,9 +33,45 @@ scp templates/vlc_stream.html ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 # scp picamctl_settings.json ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp systemd/picamctl.service ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp scripts/manage_service.sh ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
+scp requirements.txt ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
+
+# Install Python dependencies if not already installed
+echo "📦 Checking and installing Python dependencies..."
+ssh ${PI_USER}@${PI_HOST} << EOF
+    cd ${REMOTE_DIR}
+    pip3 install -r requirements.txt --break-system-packages --no-deps --dry-run > /dev/null 2>&1
+    if [ \$? -ne 0 ]; then
+        pip3 install -r requirements.txt --break-system-packages
+    else
+        echo "Dependencies already satisfied"
+    fi
+EOF
 
 # Make scripts executable
 ssh ${PI_USER}@${PI_HOST} "chmod +x ${REMOTE_DIR}/manage_service.sh"
+
+# Detect Pi model and optimize if Zero 2 W
+echo "🔍 Detecting Pi model..."
+PI_MODEL=$(ssh ${PI_USER}@${PI_HOST} 'cat /proc/device-tree/model || echo "Unknown"')
+echo "Pi Model: $PI_MODEL"
+
+if echo "$PI_MODEL" | grep -q "Zero 2 W"; then
+    echo "ℹ️  Detected Raspberry Pi Zero 2 W - Applying optimizations..."
+    # Set lower default resolution/framerate if settings file doesn't exist
+    ssh ${PI_USER}@${PI_HOST} << EOF
+        SETTINGS_FILE="${REMOTE_DIR}/picamctl_settings.json"
+        if [ ! -f "\$SETTINGS_FILE" ]; then
+            echo '{
+                "width": 1280,
+                "height": 720,
+                "framerate": 10
+            }' > \$SETTINGS_FILE
+            echo "Created optimized default settings for Pi Zero 2 W"
+        else
+            echo "Existing settings found - manual optimization recommended: 1280x720 @ 10fps"
+        fi
+EOF
+fi
 
 # Install/update systemd service
 echo "⚙️  Installing systemd service..."
