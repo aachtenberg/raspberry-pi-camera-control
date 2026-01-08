@@ -53,17 +53,12 @@
             align-items: center;
             gap: 5px;
         }
-        .ip-address .status-icon {
-            width: 6px;
-            height: 6px;
-            background: #4A9EFF;
-            opacity: 0.6;
-        }
         .mqtt-status-inline {
             font-size: 12px;
             display: flex;
             align-items: center;
             gap: 5px;
+            color: #888;
         }
         .top-right {
             display: flex;
@@ -85,6 +80,12 @@
             border-radius: 50%;
             background: #2a2f4a;
             transition: background-color 0.3s ease;
+        }
+        .ip-address .status-icon {
+            width: 6px;
+            height: 6px;
+            background: #4A9EFF;
+            opacity: 0.6;
         }
         .status-icon.status-ok {
             background: #4CAF50;
@@ -469,11 +470,11 @@
     <div class="top-bar">
         <div class="top-left">
             <div class="ip-address">
-                <span class="status-icon"></span>
+                <span class="status-icon" aria-hidden="true"></span>
                 <span id="ip-address">Loading...</span>
             </div>
             <div class="mqtt-status-inline">
-                <span class="status-icon" id="mqtt-status-icon"></span>
+                <span class="status-icon" id="mqtt-status-icon" aria-hidden="true"></span>
                 <span id="mqtt-status">MQTT: --</span>
             </div>
         </div>
@@ -935,19 +936,21 @@
                     document.getElementById('system-disk').textContent = data.disk;
                     document.getElementById('bandwidth-status').textContent = (data.bandwidth || 0).toFixed(2) + ' Kbps';
                     
-                    // Update MQTT status
+                    // Update MQTT status with defensive check
                     const mqttStatus = document.getElementById('mqtt-status');
                     const mqttIcon = document.getElementById('mqtt-status-icon');
-                    if (data.mqtt_connected) {
-                        mqttStatus.textContent = 'MQTT: Connected';
-                        mqttStatus.style.color = '#4CAF50';
-                        mqttIcon.classList.add('status-ok');
-                        mqttIcon.classList.remove('status-error');
-                    } else {
-                        mqttStatus.textContent = 'MQTT: Disconnected';
-                        mqttStatus.style.color = '#888';
-                        mqttIcon.classList.remove('status-ok');
-                        mqttIcon.classList.add('status-error');
+                    if (mqttStatus && mqttIcon && 'mqtt_connected' in data) {
+                        if (data.mqtt_connected) {
+                            mqttStatus.textContent = 'MQTT: Connected';
+                            mqttStatus.style.color = '#4CAF50';
+                            mqttIcon.classList.add('status-ok');
+                            mqttIcon.classList.remove('status-error');
+                        } else {
+                            mqttStatus.textContent = 'MQTT: Disconnected';
+                            mqttStatus.style.color = '#888';
+                            mqttIcon.classList.remove('status-ok');
+                            mqttIcon.classList.add('status-error');
+                        }
                     }
                     
                     // Update VLC button state
@@ -1671,7 +1674,7 @@
         function updateHDRStatus(hdrValue) {
             const hdrStatus = document.getElementById('hdr-status');
             const hdrIcon = document.getElementById('hdr-status-icon');
-            if (hdrStatus) {
+            if (hdrStatus && hdrIcon) {
                 const statusText = hdrValue === 'off' ? 'HDR: Off' : `HDR: ${hdrValue.charAt(0).toUpperCase() + hdrValue.slice(1)}`;
                 hdrStatus.textContent = statusText;
                 if (hdrValue === 'off') {
