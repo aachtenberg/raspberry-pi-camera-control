@@ -416,7 +416,8 @@
     
     <script>
         function updateStreamUrl() {
-            const url = `http://${window.location.hostname}:5000/stream.h264`;
+            const port = window.location.port ? `:${window.location.port}` : '';
+            const url = `http://${window.location.hostname}${port}/stream.h264`;
             document.getElementById('stream-url').textContent = url;
         }
         
