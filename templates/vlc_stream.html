@@ -284,11 +284,52 @@
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
         }
-        }
         
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                padding-top: 20px;
+            }
+            
+            .card {
+                padding: 20px;
+                border-radius: 15px;
+            }
+            
+            .header h1 {
+                font-size: 1.8rem;
+            }
+            
+            .url-text {
+                font-size: 0.75rem;
+                padding: 10px;
+                word-break: break-all;
+                max-width: 100%;
+            }
+            
+            .url-container {
+                flex-direction: column;
+            }
+            
+            .step-content {
+                width: calc(100% - 45px);
+            }
+            
+            .control-buttons {
+                flex-direction: column;
+            }
+            
+            .control-buttons .btn {
+                width: 100%;
+            }
         }
     </style>
 </head>
