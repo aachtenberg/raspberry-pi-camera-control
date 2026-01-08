@@ -10,18 +10,22 @@ REMOTE_DIR="/home/${PI_USER}/picamctl"
 
 echo "🚀 Deploying picamctl to Pi..."
 
+# Get the project root directory (parent of scripts/)
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 # Create remote directory if it doesn't exist
 ssh ${PI_USER}@${PI_HOST} "mkdir -p ${REMOTE_DIR}"
 
 # Copy files to Pi
 echo "📦 Copying files..."
 scp picamctl.py ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
-scp garage_cam_template.html ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
-scp landing.html ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
-scp vlc_stream.html ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
+scp templates/garage_cam_template.html ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
+scp templates/landing.html ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
+scp templates/vlc_stream.html ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp picamctl_settings.json ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
-scp picamctl.service ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
-scp manage_service.sh ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
+scp systemd/picamctl.service ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
+scp scripts/manage_service.sh ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 
 # Make scripts executable
 ssh ${PI_USER}@${PI_HOST} "chmod +x ${REMOTE_DIR}/manage_service.sh"

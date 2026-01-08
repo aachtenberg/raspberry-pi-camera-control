@@ -9,8 +9,8 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-            background: #000;
-            color: #fff;
+            background: #0a0e27;
+            color: #e0e0e0;
             overflow: hidden;
             height: 100vh;
             display: flex;
@@ -19,12 +19,12 @@
 
         /* Top Bar */
         .top-bar {
-            background: #000000;
+            background: #1a1f3a;
             padding: 12px 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid #0a0a0a;
+            border-bottom: 1px solid #2a2f4a;
             z-index: 100;
         }
         .top-left {
@@ -34,14 +34,14 @@
         .camera-name {
             font-size: 32px;
             font-weight: 600;
-            color: #fff;
+            color: #e0e0e0;
             display: flex;
             align-items: center;
             gap: 12px;
         }
         .camera-name .status-icon {
-            width: 20px;
-            height: 20px;
+            width: 10px;
+            height: 10px;
         }
         .ip-address {
             font-size: 12px;
@@ -64,7 +64,7 @@
             width: 16px;
             height: 16px;
             border-radius: 50%;
-            background: #0a0a0a;
+            background: #2a2f4a;
             transition: background-color 0.3s ease;
         }
         .status-icon.status-ok {
@@ -75,6 +75,26 @@
         }
         .status-icon.status-stopped {
             background: #FFFFFF;
+        }
+        .back-btn {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: translateX(-2px);
         }
         .settings-icon {
             width: 24px;
@@ -90,7 +110,7 @@
         /* Main Video Area */
         .video-container {
             flex: 1;
-            background: #000;
+            background: #0a0e27;
             position: relative;
             display: flex;
             align-items: center;
@@ -103,7 +123,7 @@
             object-fit: contain;
         }
         video#stream {
-            background: #000;
+            background: #0a0e27;
         }
         .timestamp {
             position: absolute;
@@ -120,20 +140,20 @@
 
         /* Bottom Controls */
         .bottom-bar {
-            background: #000000;
+            background: #1a1f3a;
             padding: 15px;
             display: flex;
             justify-content: center;
             align-items: center;
             gap: 30px;
-            border-top: 1px solid #0a0a0a;
+            border-top: 1px solid #2a2f4a;
         }
         .control-btn {
             width: 40px;
             height: 40px;
             border: none;
             background: transparent;
-            color: #fff;
+            color: #e0e0e0;
             cursor: pointer;
             font-size: 20px;
             display: flex;
@@ -143,7 +163,7 @@
             transition: all 0.2s;
         }
         .control-btn:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.1);
             transform: scale(1.1);
         }
 
@@ -154,7 +174,7 @@
             right: -400px;
             width: 400px;
             height: 100vh;
-            background: #050505;
+            background: #1a1f3a;
             box-shadow: -2px 0 20px rgba(0, 0, 0, 0.9);
             transition: right 0.3s ease;
             z-index: 1000;
@@ -170,16 +190,16 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid #0a0a0a;
+            border-bottom: 1px solid #2a2f4a;
         }
         .settings-header h2 {
             font-size: 18px;
-            color: #fff;
+            color: #e0e0e0;
         }
         .close-btn {
             background: none;
             border: none;
-            color: #fff;
+            color: #e0e0e0;
             font-size: 24px;
             cursor: pointer;
             width: 30px;
@@ -190,7 +210,7 @@
             border-radius: 4px;
         }
         .close-btn:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.1);
         }
         .settings-content {
             padding: 20px;
@@ -223,17 +243,17 @@
         }
         .toggle-label {
             font-size: 14px;
-            color: #fff;
+            color: #e0e0e0;
         }
         .toggle-switch {
             position: relative;
             width: 50px;
             height: 26px;
-            background: #0a0a0a;
+            background: #2a2f4a;
             border-radius: 13px;
             cursor: pointer;
             transition: background 0.3s;
-            border: 1px solid #1a1a1a;
+            border: 1px solid #3a3f5a;
         }
         .toggle-switch.active {
             background: #2196F3;
@@ -288,7 +308,7 @@
         input[type="range"] {
             width: 100%;
             height: 4px;
-            background: #0a0a0a;
+            background: #2a2f4a;
             border-radius: 2px;
             outline: none;
             -webkit-appearance: none;
@@ -313,9 +333,9 @@
         select {
             width: 100%;
             padding: 8px;
-            background: #0a0a0a;
-            color: #fff;
-            border: 1px solid #1a1a1a;
+            background: #2a2f4a;
+            color: #e0e0e0;
+            border: 1px solid #3a3f5a;
             border-radius: 4px;
             font-size: 13px;
         }
@@ -323,8 +343,8 @@
         /* System Info */
         .system-info {
             padding: 12px;
-            background: #000000;
-            border: 1px solid #0a0a0a;
+            background: #2a2f4a;
+            border: 1px solid #3a3f5a;
             border-radius: 4px;
             font-size: 12px;
             margin-bottom: 15px;
@@ -446,6 +466,12 @@
 
     <!-- Bottom Controls -->
     <div class="bottom-bar">
+        <a href="/" class="back-btn" style="margin-right: auto;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            </svg>
+            Back
+        </a>
         <button class="control-btn" onclick="togglePlayPause()" id="play-pause-btn" title="Play/Pause">
             <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
         </button>
@@ -694,7 +720,7 @@
                     <div class="slider-label">
                         <span>Camera Name</span>
                     </div>
-                    <input type="text" id="camera_name_input" placeholder="Enter camera name" style="width: 100%; padding: 8px; background: #0a0a0a; color: #fff; border: 1px solid #1a1a1a; border-radius: 4px; font-size: 13px;" onchange="applyCameraName()">
+                    <input type="text" id="camera_name_input" placeholder="Enter camera name" style="width: 100%; padding: 8px; background: #2a2f4a; color: #e0e0e0; border: 1px solid #3a3f5a; border-radius: 4px; font-size: 13px;" onchange="applyCameraName()">
                 </div>
                 <div class="system-info">
                     <div class="system-item">
@@ -997,14 +1023,14 @@
                     <label style="color: #888; font-size: 13px; display: block; margin-bottom: 8px;">Stream URL:</label>
                     <div style="display: flex; gap: 10px;">
                         <input type="text" id="vlc-url-input" value="${streamUrl}" readonly
-                            style="flex: 1; padding: 10px; background: #0a0a0a; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 13px;">
+                            style="flex: 1; padding: 10px; background: #2a2f4a; color: #e0e0e0; border: 1px solid #3a3f5a; border-radius: 4px; font-family: monospace; font-size: 13px;">
                         <button onclick="copyVLCUrl()" style="padding: 10px 20px; background: #2196F3; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">
                             Copy
                         </button>
                     </div>
                 </div>
                 
-                <div style="background: #0a0a0a; border: 1px solid #333; border-radius: 4px; padding: 15px; margin-bottom: 20px;">
+                <div style="background: #2a2f4a; border: 1px solid #3a3f5a; border-radius: 4px; padding: 15px; margin-bottom: 20px;">
                     <p style="color: #aaa; font-size: 13px; margin: 0 0 10px 0; font-weight: 500;">To view in VLC:</p>
                     <ol style="color: #888; font-size: 13px; margin: 0; padding-left: 20px; line-height: 1.6;">
                         <li>Open VLC Media Player</li>

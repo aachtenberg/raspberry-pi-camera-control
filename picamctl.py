@@ -34,6 +34,12 @@ h264_stderr = None  # Keep file handle alive to prevent zombie process
 streaming_mode = 'hls'  # Default to web UI mode
 streaming_mode_lock = threading.Lock()
 
+# VLC streaming buffer - circular buffer for H.264 chunks
+vlc_stream_buffer = []
+vlc_buffer_lock = threading.Lock()
+vlc_buffer_thread = None
+vlc_buffer_max_chunks = 100  # Keep last N chunks in memory
+
 # Bandwidth tracking
 bandwidth_lock = threading.Lock()
 bandwidth_data = {
@@ -45,8 +51,20 @@ bandwidth_data = {
 # Directories and files
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'picamctl_settings.json')
 HLS_DIR = os.path.join(os.path.dirname(__file__), 'hls_segments')
-LANDING_PAGE = os.path.join(os.path.dirname(__file__), 'landing.html')
-VLC_PAGE = os.path.join(os.path.dirname(__file__), 'vlc_stream.html')
+
+# Template files - check both deployed location and dev location
+def get_template_path(filename):
+    """Get template path, checking deployed location first, then dev location"""
+    deployed = os.path.join(os.path.dirname(__file__), filename)
+    if os.path.exists(deployed):
+        return deployed
+    dev = os.path.join(os.path.dirname(__file__), 'templates', filename)
+    if os.path.exists(dev):
+        return dev
+    return deployed  # Return deployed path anyway for error message
+
+LANDING_PAGE = get_template_path('landing.html')
+VLC_PAGE = get_template_path('vlc_stream.html')
 
 def save_settings():
     """Save current settings to file"""
@@ -168,7 +186,7 @@ def calculate_bandwidth():
         logger.error(f"Error calculating bandwidth: {e}")
         return 0
 
-HTML_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'garage_cam_template.html')
+HTML_TEMPLATE_PATH = get_template_path('garage_cam_template.html')
 
 def get_html():
     """Load HTML template from file"""
@@ -1142,11 +1160,39 @@ def start_stream():
 # VLC Streaming (Low Latency Direct H.264 Stream via TCP)
 # ============================================================================
 
+def vlc_buffer_reader():
+    """Background thread that continuously reads from camera and buffers chunks"""
+    global vlc_stream_buffer
+    fifo_path = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
+    
+    try:
+        logger.info("VLC buffer thread: Opening FIFO for reading...")
+        with open(fifo_path, 'rb', buffering=0) as fifo:
+            logger.info("VLC buffer thread: Connected to camera FIFO")
+            while True:
+                chunk = fifo.read(8192)
+                if not chunk:
+                    logger.warning("VLC buffer thread: No data from FIFO")
+                    break
+                
+                # Add chunk to circular buffer
+                with vlc_buffer_lock:
+                    vlc_stream_buffer.append(chunk)
+                    # Keep buffer size limited
+                    if len(vlc_stream_buffer) > vlc_buffer_max_chunks:
+                        vlc_stream_buffer.pop(0)
+                        
+    except Exception as e:
+        logger.error(f"VLC buffer thread error: {e}")
+    finally:
+        logger.info("VLC buffer thread: Exiting")
+
+
 def start_vlc_camera():
-    """Start camera in VLC streaming mode - direct H.264 to TCP socket"""
+    """Start camera in VLC streaming mode - direct H.264 output"""
     global current_camera_process, camera_running
     
-    logger.info("Starting camera in VLC streaming mode (TCP output)")
+    logger.info("Starting camera in VLC streaming mode")
     
     rotation = int(settings.get('rotation', 0))
     
@@ -1202,17 +1248,16 @@ def start_vlc_camera():
     log_file = os.path.join(os.path.dirname(__file__), 'vlc_camera.log')
     fifo_path = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
     
-    # Create FIFO if it doesn't exist
+    # Remove old FIFO if exists
     try:
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
-        os.mkfifo(fifo_path)
     except Exception as e:
-        logger.error(f"Failed to create FIFO: {e}")
+        logger.error(f"Failed to remove old FIFO: {e}")
     
     try:
-        # Output directly to FIFO
-        full_cmd = ' '.join(cmd) + f' > {fifo_path}'
+        # Output to stdout (we'll read it directly)
+        full_cmd = ' '.join(cmd)
         logger.info(f"VLC camera command: {full_cmd}")
         
         global h264_stderr
@@ -1224,14 +1269,13 @@ def start_vlc_camera():
         
         h264_stderr = open(log_file, 'wb', buffering=0)
         camera_process = subprocess.Popen(
-            full_cmd,
-            shell=True,
-            stdout=subprocess.DEVNULL,
+            cmd,
+            stdout=subprocess.PIPE,
             stderr=h264_stderr,
             start_new_session=True
         )
         
-        time.sleep(2)
+        time.sleep(1)
         if camera_process.poll() is not None:
             try:
                 with open(log_file, 'r') as f:
@@ -1246,8 +1290,8 @@ def start_vlc_camera():
             current_camera_process = camera_process
             camera_running = True
         
-        logger.info("VLC camera started - TCP server on port 8888")
-        logger.info("Stream URL: tcp://0.0.0.0:8888")
+        logger.info("VLC camera started successfully")
+        logger.info(f"Stream URL: http://192.168.0.169:5000/stream.h264")
         return True
     except Exception as e:
         logger.error(f"Failed to start VLC camera: {e}")
@@ -1255,30 +1299,30 @@ def start_vlc_camera():
 
 
 def generate_vlc_stream():
-    """Generator that yields H.264 stream from FIFO for HTTP clients"""
-    fifo_path = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
+    """Generator that yields H.264 stream directly from camera process stdout"""
+    global current_camera_process
+    
+    logger.info("VLC HTTP client connecting...")
     
     try:
-        logger.info("VLC HTTP client connecting to FIFO stream...")
-        
-        # Open FIFO for reading (this blocks until camera writes to it)
-        with open(fifo_path, 'rb', buffering=0) as fifo:
-            logger.info("VLC HTTP client connected to camera stream")
+        # Read directly from camera process stdout
+        with camera_process_lock:
+            if not current_camera_process or current_camera_process.poll() is not None:
+                logger.error("Camera not running for VLC stream")
+                return
             
-            # Stream data to HTTP client
-            while True:
-                chunk = fifo.read(8192)
-                if not chunk:
-                    break
-                yield chunk
+            process = current_camera_process
         
-        logger.info("VLC HTTP client disconnected")
-        
-    except Exception as e:
-        logger.error(f"Error streaming from FIFO: {e}")
-        
+        # Read camera output directly and stream it
+        while True:
+            chunk = process.stdout.read(8192)
+            if not chunk:
+                logger.warning("No data from camera")
+                break
+            yield chunk
+            
     except GeneratorExit:
-        logger.info("VLC HTTP client closed")
+        logger.info("VLC HTTP client disconnected")
     except Exception as e:
         logger.error(f"VLC stream error: {e}")
 
@@ -1519,6 +1563,7 @@ def get_settings():
 @app.route('/system_info')
 def get_system_info():
     """Get system information for display"""
+    global streaming_mode
     import socket
     import shutil
     
@@ -1547,7 +1592,7 @@ def get_system_info():
         'ip': ip_address,
         'disk': disk_info,
         'bandwidth': bandwidth_kbps,
-        'vlc_stream_running': vlc_stream_running
+        'vlc_stream_running': (streaming_mode == 'vlc')
     })
 
 
