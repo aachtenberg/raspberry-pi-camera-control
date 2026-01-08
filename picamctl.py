@@ -42,6 +42,7 @@ vlc_buffer_thread = None
 vlc_buffer_max_chunks = 100  # Keep last N chunks in memory
 vlc_stream_active = False
 vlc_stream_clients = 0
+MAX_VLC_CLIENTS = 2  # Limit concurrent VLC streams (Pi Zero resource constraint)
 
 # Bandwidth tracking
 bandwidth_lock = threading.Lock()
@@ -1784,8 +1785,19 @@ def stop_vlc_mode_endpoint():
 @app.route('/stream.h264')
 def stream_h264():
     """Direct H.264 stream for VLC (low latency) - only works in VLC mode"""
+    global vlc_stream_clients
+    
     if streaming_mode != 'vlc':
         return jsonify({'error': 'VLC mode not active'}), 400
+    
+    # Check if maximum concurrent clients reached
+    with vlc_buffer_lock:
+        if vlc_stream_clients >= MAX_VLC_CLIENTS:
+            logger.warning(f"VLC stream rejected: maximum {MAX_VLC_CLIENTS} clients already connected")
+            return jsonify({
+                'error': f'Maximum {MAX_VLC_CLIENTS} concurrent streams reached',
+                'message': 'Please wait for another client to disconnect'
+            }), 503
     
     return Response(
         generate_vlc_stream(),

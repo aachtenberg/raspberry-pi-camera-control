@@ -19,5 +19,11 @@
   "denoise": "off",
   "hdr": "off",
   "quality": 40,
-  "snapshot_quality": 100
+  "snapshot_quality": 100,
+  "mqtt_enabled": true,
+  "mqtt_broker": "192.168.0.167",
+  "mqtt_port": 1883,
+  "mqtt_user": "",
+  "mqtt_password": "",
+  "mqtt_base_topic": "surveillance"
 }
