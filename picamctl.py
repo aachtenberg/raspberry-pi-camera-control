@@ -2122,10 +2122,24 @@ def publish_status():
 def publish_metrics():
     """Publish camera metrics"""
     bandwidth_kbps = calculate_bandwidth()
+    
+    # Get system memory info
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        free_heap = mem.available
+    except:
+        free_heap = 0
+    
     payload = {
-        "bandwidth_kbps": round(bandwidth_kbps, 2),
+        "device": settings['camera_name'],
+        "location": "surveillance",
+        "timestamp": int(time.time()),
         "uptime_seconds": int(get_uptime()),
-        "timestamp": int(time.time())
+        "free_heap": free_heap,
+        "camera_ready": 1 if camera_running else 0,
+        "mqtt_connected": 1 if mqtt_connected else 0,
+        "bandwidth_kbps": round(bandwidth_kbps, 2)
     }
     publish_mqtt(get_topic("metrics"), payload, retain=True)
 
