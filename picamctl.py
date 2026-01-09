@@ -1753,27 +1753,27 @@ def mjpeg_capture_loop():
             
             logger.info(f"MJPEG capture command: {' '.join(cmd)}")
             
-            while camera_running and settings.get('use_mjpeg', False):
-                try:
-                    result = subprocess.run(
-                        cmd + ['--immediate'],  # Capture immediately
-                        capture_output=True,
-                        timeout=5
-                    )
-                    
-                    if result.returncode == 0 and result.stdout:
-                        with mjpeg_frame_lock:
-                            mjpeg_frame = result.stdout
-                    else:
-                        logger.warning(f"MJPEG capture failed: {result.stderr.decode()}")
-                    
-                    time.sleep(frame_delay)
-                    
-                except subprocess.TimeoutExpired:
-                    logger.warning("MJPEG capture timeout")
-                except Exception as e:
-                    logger.error(f"MJPEG capture error: {e}")
-                    time.sleep(1)
+            # Capture loop - repeatedly grab frames
+            try:
+                result = subprocess.run(
+                    cmd + ['--immediate'],  # Capture immediately
+                    capture_output=True,
+                    timeout=5
+                )
+                
+                if result.returncode == 0 and result.stdout:
+                    with mjpeg_frame_lock:
+                        mjpeg_frame = result.stdout
+                else:
+                    logger.warning(f"MJPEG capture failed: {result.stderr.decode()}")
+                
+                time.sleep(frame_delay)
+                
+            except subprocess.TimeoutExpired:
+                logger.warning("MJPEG capture timeout")
+            except Exception as e:
+                logger.error(f"MJPEG capture error: {e}")
+                time.sleep(1)
                     
         except Exception as e:
             logger.error(f"MJPEG loop error: {e}")
