@@ -9,6 +9,7 @@ A modern web-based camera control interface for Raspberry Pi Camera with dual st
 ## Features
 
 ✅ **Dual Streaming Modes** - Choose between web UI or direct VLC streaming  
+✅ **MJPEG Streaming Option** - Optional MJPEG mode for Pi 4/5 (tested on Pi Zero 2 W, planned for Pi 5)  
 ✅ **H.264 Hardware Acceleration** - Uses rpicam-vid with hardware encoding  
 ✅ **Modern Dark Theme** - Consistent dark blue UI across all pages  
 ✅ **Landing Page** - Simple mode selection interface  
@@ -37,6 +38,8 @@ A modern web-based camera control interface for Raspberry Pi Camera with dual st
 
 ![Pi Zero 2 W with Camera on Bluetti](media/picamerazero.jpg)
 *Pi Zero 2 W with Camera Module 3 - Portable surveillance powered by Bluetti battery pack*
+
+**Note:** MJPEG streaming has been tested on Pi Zero 2 W only. Testing on Pi 4/5 is planned. HLS mode is recommended for Pi Zero 2 W due to better CPU efficiency.
 
 ## Project Structure
 
