@@ -608,8 +608,8 @@ HTML = '''
             <div class="control">
                 <label><input type="checkbox" id="use_mjpeg"> Use MJPEG Streaming</label>
                 <div style="font-size: 11px; color: #888; margin-top: 5px; line-height: 1.4;">
-                    ⚠️ MJPEG uses more CPU. Recommended only for Pi 4/5.<br>
-                    Leave unchecked for Pi Zero 2 W (uses efficient HLS/H.264).
+                    💡 <strong>HLS</strong> (default): Low CPU, 3-6s latency - best for Pi Zero 2 W<br>
+                    💡 <strong>MJPEG</strong>: Higher CPU, &lt;1s latency - may cause lag on Pi Zero 2 W
                 </div>
             </div>
 

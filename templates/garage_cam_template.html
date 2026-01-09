@@ -786,6 +786,22 @@
             <button class="preset-btn" onclick="applyDarkModePreset()" style="margin-top: 10px;">Dark Mode Preset</button>
             <button class="preset-btn" onclick="applyPerformancePreset()" style="background: #FF9800; margin-top: 10px;">Performance Mode</button>
 
+            <!-- STREAMING -->
+            <div class="settings-section">
+                <h3>STREAMING</h3>
+                <div class="toggle-group">
+                    <div class="toggle-item">
+                        <span class="toggle-label">MJPEG Mode</span>
+                        <div class="toggle-switch" id="mjpeg-toggle" onclick="toggleSwitch(this, 'use_mjpeg')"></div>
+                    </div>
+                </div>
+                <div style="font-size: 11px; color: #888; margin-top: 10px; line-height: 1.5; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                    <div style="margin-bottom: 5px;">💡 <strong>HLS</strong> (default): Low CPU, 3-6s latency</div>
+                    <div>💡 <strong>MJPEG</strong>: Higher CPU, &lt;1s latency</div>
+                    <div style="margin-top: 8px; opacity: 0.8;">⚠️ MJPEG may cause performance issues on Pi Zero 2 W</div>
+                </div>
+            </div>
+
             <!-- SYSTEM -->
             <div class="settings-section">
                 <h3>SYSTEM</h3>
@@ -1240,6 +1256,12 @@
             // Handle different toggle types
             if (setting === 'vflip' || setting === 'hflip') {
                 applySetting(setting, isActive);
+            } else if (setting === 'use_mjpeg') {
+                applySetting(setting, isActive);
+                // MJPEG mode change requires stream reload
+                setTimeout(() => {
+                    initVideoStream();
+                }, 2000);
             } else if (setting === 'auto_exposure') {
                 applyDropdown('exposure', isActive ? 'normal' : 'sport');
             } else if (setting === 'auto_wb') {
@@ -1744,6 +1766,12 @@
                     if (settings.metering) document.getElementById('metering').value = settings.metering;
                     if (settings.awb) document.getElementById('awb').value = settings.awb;
                     if (settings.rotation) document.getElementById('rotation').value = settings.rotation;
+
+                    // Load MJPEG toggle
+                    const mjpegToggle = document.getElementById('mjpeg-toggle');
+                    if (mjpegToggle && settings.use_mjpeg) {
+                        mjpegToggle.classList.add('active');
+                    }
 
                     isLoadingSettings = false;  // Reset flag after loading
                 });
