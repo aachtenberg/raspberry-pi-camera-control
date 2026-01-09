@@ -24,6 +24,8 @@ hls_segments/
 
 # Local settings that may contain sensitive info
 *.local
+.env
+picamctl_settings.json
 
 # OS files
 .DS_Store
