@@ -4,8 +4,6 @@ A modern web-based camera control interface for Raspberry Pi Camera with dual st
 - **Web Browser Mode**: Full-featured web UI with HLS streaming
 - **VLC Mode**: Low-latency direct H.264 streaming for VLC player
 
-![Landing Page](media/landing-page.png)
-
 ## Features
 
 ✅ **Dual Streaming Modes** - Choose between web UI or direct VLC streaming  
@@ -13,25 +11,8 @@ A modern web-based camera control interface for Raspberry Pi Camera with dual st
 ✅ **Modern Dark Theme** - Consistent dark blue UI across all pages  
 ✅ **Landing Page** - Simple mode selection interface  
 ✅ **Full Camera Controls** - Resolution, framerate, exposure, white balance, etc.  
-✅ **MQTT Status Integration** - Real-time connection status with color-coded indicators  
 ✅ **Systemd Service** - Runs reliably as a background service with auto-start  
 ✅ **No Zombie Processes** - Proper subprocess management  
-
-### Web Interface
-
-![Web Interface](media/web-interface.png)
-*Main streaming interface with real-time status indicators*
-
-![Settings Panel](media/web-interface-settings-panel.png)
-*Comprehensive settings panel with MQTT configuration*
-
-### VLC Streaming Mode
-
-![VLC Page](media/vlc-page.png)
-*Direct H.264 streaming setup page*
-
-![VLC Player](media/vlc-player.png)
-*Low-latency playback in VLC Media Player*
 
 ## Project Structure
 
