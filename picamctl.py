@@ -1748,9 +1748,8 @@ def mjpeg_capture_loop():
                 roi_arg = f"{roi_x:.6f},{roi_y:.6f},{roi_width:.6f},{roi_height:.6f}"
                 cmd.extend(['--roi', roi_arg])
             
-            # Calculate frame delay based on framerate (cap at 10fps for MJPEG to reduce CPU)
-            mjpeg_framerate = min(local_settings['framerate'], 10.0)
-            frame_delay = 1.0 / mjpeg_framerate
+            # Calculate frame delay based on framerate
+            frame_delay = 1.0 / local_settings['framerate']
             
             logger.info(f"MJPEG capture command: {' '.join(cmd)}")
             
@@ -1788,12 +1787,11 @@ def generate_mjpeg_stream():
     logger.info("MJPEG stream client connected")
     
     try:
-        # Get framerate setting for stream delivery (cap at 10fps for MJPEG to reduce CPU)
+        # Get framerate setting for stream delivery
         framerate = settings.get('framerate', 30.0)
         if framerate <= 0:
             framerate = 30.0
-        mjpeg_framerate = min(framerate, 10.0)
-        frame_delay = 1.0 / mjpeg_framerate
+        frame_delay = 1.0 / framerate
         
         while settings.get('use_mjpeg', False):
             with mjpeg_frame_lock:
