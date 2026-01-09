@@ -33,6 +33,11 @@ A modern web-based camera control interface for Raspberry Pi Camera with dual st
 ![VLC Player](media/vlc-player.png)
 *Low-latency playback in VLC Media Player*
 
+## Real-World Deployment
+
+![Pi Zero 2 W with Camera on Bluetti](media/picamerazero.jpg)
+*Pi Zero 2 W with Camera Module 3 - Portable surveillance powered by Bluetti battery pack*
+
 ## Project Structure
 
 ```
