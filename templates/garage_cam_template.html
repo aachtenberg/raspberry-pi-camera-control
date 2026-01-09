@@ -509,7 +509,7 @@
         </div>
         <div class="top-right">
             <div class="status-item">
-                <span id="motion-status">👁️ 0 Motion</span>
+                <span id="streaming-mode">📹 HLS</span>
             </div>
             <div class="status-item">
                 <span id="disk-status">💾 Loading...</span>
@@ -574,14 +574,6 @@
             <button class="close-btn" onclick="toggleSettings()">×</button>
         </div>
         <div class="settings-content">
-            <!-- Feature Toggles -->
-            <div class="toggle-group">
-                <div class="toggle-item">
-                    <span class="toggle-label">Motion Detection</span>
-                    <div class="toggle-switch" onclick="toggleSwitch(this, 'motion')"></div>
-                </div>
-            </div>
-
             <!-- Video Settings -->
             <div class="settings-section">
                 <h3>VIDEO</h3>
@@ -867,9 +859,12 @@
             fetch('/settings')
                 .then(response => response.json())
                 .then(settings => {
+                    const modeIndicator = document.getElementById('streaming-mode');
                     if (settings.use_mjpeg) {
+                        if (modeIndicator) modeIndicator.textContent = '📹 MJPEG';
                         initMJPEGStream();
                     } else {
+                        if (modeIndicator) modeIndicator.textContent = '📹 HLS';
                         initHLSStream();
                     }
                 })
@@ -1266,9 +1261,6 @@
                 applyDropdown('exposure', isActive ? 'normal' : 'sport');
             } else if (setting === 'auto_wb') {
                 applyDropdown('awb', isActive ? 'auto' : 'daylight');
-            } else if (setting === 'motion') {
-                // Not implemented yet - just visual feedback
-                showNotification('Motion detection feature coming soon', 'info');
             }
         }
 
