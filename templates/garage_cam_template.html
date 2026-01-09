@@ -845,9 +845,69 @@
             }
         }
 
+        // Initialize video stream (HLS or MJPEG based on settings)
+        function initVideoStream() {
+            // Check settings to determine streaming mode
+            fetch('/settings')
+                .then(response => response.json())
+                .then(settings => {
+                    if (settings.use_mjpeg) {
+                        initMJPEGStream();
+                    } else {
+                        initHLSStream();
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to get streaming mode, defaulting to HLS:', error);
+                    initHLSStream();
+                });
+        }
+
+        // Initialize MJPEG video stream
+        function initMJPEGStream() {
+            const video = document.getElementById('stream');
+            console.log('Initializing MJPEG stream');
+            
+            // Stop any existing HLS
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+            
+            // Use img tag approach for MJPEG
+            video.style.display = 'none';
+            let img = document.getElementById('mjpeg-img');
+            if (!img) {
+                img = document.createElement('img');
+                img.id = 'mjpeg-img';
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.objectFit = 'contain';
+                video.parentNode.appendChild(img);
+            }
+            
+            img.src = '/video_feed?t=' + new Date().getTime();
+            img.style.display = 'block';
+            img.onload = function() {
+                updateCameraStatus('ok');
+            };
+            img.onerror = function() {
+                updateCameraStatus('error');
+                console.log('MJPEG error, retrying in 3 seconds...');
+                setTimeout(initMJPEGStream, 3000);
+            };
+        }
+
         // Initialize HLS video stream
         function initHLSStream() {
             const video = document.getElementById('stream');
+            
+            // Hide MJPEG img if exists
+            const img = document.getElementById('mjpeg-img');
+            if (img) {
+                img.style.display = 'none';
+            }
+            video.style.display = 'block';
             // Add timestamp to bust cache
             const hlsUrl = '/hls/stream.m3u8?t=' + new Date().getTime();
             
@@ -938,7 +998,7 @@
 
         // Load system info on page load
         window.onload = function() {
-            initHLSStream();  // Initialize HLS stream
+            initVideoStream();  // Initialize video stream (MJPEG or HLS)
             loadSystemInfo();
             updateTimestamp();
             setInterval(updateTimestamp, 1000);

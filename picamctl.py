@@ -26,10 +26,15 @@ app = Flask(__name__)
 # Global camera process management
 current_camera_process = None
 camera_process_lock = threading.Lock()
-camera_frame_buffer = []  # Shared frame buffer for all clients
+camera_frame_buffer = []  # Shared frame buffer for all clients (used for MJPEG)
 camera_running = False
 use_hw_acceleration = True  # Use H.264 hardware encoding
 h264_stderr = None  # Keep file handle alive to prevent zombie process
+
+# MJPEG streaming
+mjpeg_frame = None  # Current MJPEG frame
+mjpeg_frame_lock = threading.Lock()
+mjpeg_capture_thread = None
 
 # Streaming mode: 'hls' (web UI with HLS) or 'vlc' (direct H.264 TCP)
 streaming_mode = 'hls'  # Default to web UI mode
@@ -121,6 +126,7 @@ settings = {
     'quality': 93,  # JPEG quality (1-100)
     'snapshot_quality': 100,  # Snapshot JPEG quality (80-100)
     'zoom': 1.0,  # Digital zoom (1.0 = no zoom, max depends on user preference)
+    'use_mjpeg': False,  # Use MJPEG streaming instead of HLS (better for Pi 4/5, not recommended for Pi Zero)
     'mqtt_enabled': True,
     'mqtt_broker': 'localhost',
     'mqtt_port': 1883,
@@ -597,6 +603,16 @@ HTML = '''
                 </div>
             </div>
 
+            <h2>Streaming Mode</h2>
+            
+            <div class="control">
+                <label><input type="checkbox" id="use_mjpeg"> Use MJPEG Streaming</label>
+                <div style="font-size: 11px; color: #888; margin-top: 5px; line-height: 1.4;">
+                    ⚠️ MJPEG uses more CPU. Recommended only for Pi 4/5.<br>
+                    Leave unchecked for Pi Zero 2 W (uses efficient HLS/H.264).
+                </div>
+            </div>
+
             <h2>MQTT Settings</h2>
             
             <div class="control">
@@ -689,6 +705,9 @@ HTML = '''
             document.getElementById('snapshot_quality').value = settings.snapshot_quality || 100;
             document.getElementById('snapshot_quality_val').textContent = (settings.snapshot_quality || 100) + '%';
 
+            // Streaming mode
+            document.getElementById('use_mjpeg').checked = settings.use_mjpeg || false;
+
             // MQTT settings
             document.getElementById('mqtt_enabled').checked = settings.mqtt_enabled || false;
             document.getElementById('mqtt_broker').value = settings.mqtt_broker || 'localhost';
@@ -742,6 +761,7 @@ HTML = '''
                 hdr: document.getElementById('hdr').value,
                 quality: parseInt(document.getElementById('quality').value),
                 snapshot_quality: parseInt(document.getElementById('snapshot_quality').value),
+                use_mjpeg: document.getElementById('use_mjpeg').checked,
                 mqtt_enabled: document.getElementById('mqtt_enabled').checked,
                 mqtt_broker: document.getElementById('mqtt_broker').value,
                 mqtt_port: parseInt(document.getElementById('mqtt_port').value),
@@ -1660,6 +1680,111 @@ def generate_frames():
             camera_running = False
         logger.info("Camera stream ended, released camera lock")
 
+
+# ============================================================================
+# MJPEG Streaming (For Pi 4/5 - Higher CPU usage but simpler than HLS)
+# ============================================================================
+
+def mjpeg_capture_loop():
+    """Background thread that continuously captures JPEG frames"""
+    global mjpeg_frame, camera_running
+    
+    logger.info("Starting MJPEG capture loop")
+    
+    while camera_running and settings.get('use_mjpeg', False):
+        try:
+            # Build rpicam-still command for continuous JPEG capture
+            cmd = [
+                'rpicam-still',
+                '--nopreview',
+                '--timeout', '0',  # Continuous mode
+                '--width', str(settings['width']),
+                '--height', str(settings['height']),
+                '--quality', str(settings['quality']),
+                '--brightness', str(settings['brightness']),
+                '--contrast', str(settings['contrast']),
+                '--saturation', str(settings['saturation']),
+                '--sharpness', str(settings['sharpness']),
+                '--exposure', settings['exposure'],
+                '--metering', settings['metering'],
+                '--awb', settings['awb'],
+                '--rotation', str(settings.get('rotation', 0)),
+                '-o', '-'  # Output to stdout
+            ]
+            
+            # Add flips
+            if settings['hflip']:
+                cmd.append('--hflip')
+            if settings['vflip']:
+                cmd.append('--vflip')
+            
+            # Add advanced settings
+            if settings['ev'] != 0:
+                cmd.extend(['--ev', str(settings['ev'])])
+            if settings['denoise'] != 'auto':
+                cmd.extend(['--denoise', settings['denoise']])
+            if settings['hdr'] != 'off':
+                cmd.extend(['--hdr', settings['hdr']])
+            
+            # Calculate frame delay based on framerate
+            frame_delay = 1.0 / settings['framerate']
+            
+            logger.info(f"MJPEG capture command: {' '.join(cmd)}")
+            
+            while camera_running and settings.get('use_mjpeg', False):
+                try:
+                    result = subprocess.run(
+                        cmd + ['--immediate'],  # Capture immediately
+                        capture_output=True,
+                        timeout=5
+                    )
+                    
+                    if result.returncode == 0 and result.stdout:
+                        with mjpeg_frame_lock:
+                            mjpeg_frame = result.stdout
+                    else:
+                        logger.warning(f"MJPEG capture failed: {result.stderr.decode()}")
+                    
+                    time.sleep(frame_delay)
+                    
+                except subprocess.TimeoutExpired:
+                    logger.warning("MJPEG capture timeout")
+                except Exception as e:
+                    logger.error(f"MJPEG capture error: {e}")
+                    time.sleep(1)
+                    
+        except Exception as e:
+            logger.error(f"MJPEG loop error: {e}")
+            time.sleep(1)
+    
+    logger.info("MJPEG capture loop ended")
+
+
+def generate_mjpeg_stream():
+    """Generator for MJPEG stream - yields frames in multipart format"""
+    logger.info("MJPEG stream client connected")
+    
+    try:
+        while settings.get('use_mjpeg', False):
+            with mjpeg_frame_lock:
+                frame = mjpeg_frame
+            
+            if frame:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            else:
+                # No frame yet, wait a bit
+                time.sleep(0.1)
+            
+            # Small delay to control frame rate
+            time.sleep(0.033)  # ~30fps max
+            
+    except GeneratorExit:
+        logger.info("MJPEG stream client disconnected")
+    except Exception as e:
+        logger.error(f"MJPEG stream error: {e}")
+
+
 @app.route('/')
 def index():
     """Landing page - choose between web UI or VLC streaming"""
@@ -1723,8 +1848,12 @@ def serve_hls(filename):
 
 @app.route('/video_feed')
 def video_feed():
-    """Legacy MJPEG endpoint - kept for fallback"""
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    """Video feed endpoint - returns MJPEG stream if enabled, otherwise redirects to HLS"""
+    if settings.get('use_mjpeg', False):
+        return Response(generate_mjpeg_stream(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    else:
+        # Return a simple response directing to use HLS
+        return jsonify({'mode': 'hls', 'message': 'Use HLS streaming at /hls/stream.m3u8'}), 200
 
 @app.route('/settings')
 def get_settings():
@@ -1946,11 +2075,14 @@ def apply_settings():
     # Only restart for settings that require rpicam-vid restart
     restart_required_settings = {
         'width', 'height', 'framerate', 'vflip', 'hflip',
-        'rotation', 'exposure', 'denoise', 'hdr', 'zoom'
+        'rotation', 'exposure', 'denoise', 'hdr', 'zoom', 'use_mjpeg'
     }
     
     # Check if any restart-required settings changed
     needs_restart = any(key in new_settings for key in restart_required_settings)
+    
+    # Check if streaming mode changed
+    mode_changed = 'use_mjpeg' in new_settings
     
     # If MQTT settings changed, reinitialize MQTT
     mqtt_settings = {'mqtt_enabled', 'mqtt_broker', 'mqtt_port', 'mqtt_user', 'mqtt_password', 'mqtt_base_topic'}
@@ -1962,13 +2094,25 @@ def apply_settings():
             mqtt_client.loop_stop()
         init_mqtt()
 
-    if needs_restart:
+    if needs_restart or mode_changed:
         logger.info(f"Camera restart required for settings: {list(set(new_settings.keys()) & restart_required_settings)}")
         stop_camera_process()
         with camera_process_lock:
             camera_running = False
-        # Start new stream in background
-        threading.Thread(target=start_stream, daemon=True).start()
+        
+        # Start appropriate streaming mode
+        if settings.get('use_mjpeg', False):
+            logger.info("Starting MJPEG streaming mode")
+            with camera_process_lock:
+                camera_running = True
+            global mjpeg_capture_thread
+            if mjpeg_capture_thread and mjpeg_capture_thread.is_alive():
+                mjpeg_capture_thread.join(timeout=2)
+            mjpeg_capture_thread = threading.Thread(target=mjpeg_capture_loop, daemon=True)
+            mjpeg_capture_thread.start()
+        else:
+            logger.info("Starting HLS streaming mode")
+            threading.Thread(target=start_stream, daemon=True).start()
     # Publish settings change event if any changes were made
     if new_settings:
         publish_event("settings_changed", "info")
