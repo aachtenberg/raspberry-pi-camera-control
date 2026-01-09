@@ -2232,8 +2232,13 @@ if __name__ == '__main__':
     # Load saved settings on startup
     load_settings()
 
-    # Start H.264 camera if using hardware acceleration
-    if use_hw_acceleration:
+    # Start camera based on configured streaming mode
+    if settings.get('use_mjpeg', False):
+        logger.info("Starting MJPEG streaming mode...")
+        camera_running = True
+        mjpeg_capture_thread = threading.Thread(target=mjpeg_capture_loop, daemon=True)
+        mjpeg_capture_thread.start()
+    elif use_hw_acceleration:
         logger.info("Starting H.264 hardware-accelerated camera...")
         # Start the combined rpicam | ffmpeg pipeline
         threading.Thread(target=start_h264_camera, daemon=True).start()
