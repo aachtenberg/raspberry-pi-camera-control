@@ -1014,10 +1014,11 @@ def stop_camera_process():
     """Stop the current camera process if running"""
     global current_camera_process
     with camera_process_lock:
-        logger.info("Stopping camera processes (rpicam-vid, ffmpeg)...")
+        logger.info("Stopping camera processes (rpicam-vid, rpicam-still, ffmpeg)...")
         
-        # Kill rpicam-vid and ffmpeg processes by name since they may be detached
+        # Kill rpicam-vid, rpicam-still, and ffmpeg processes by name
         os.system("pkill -f 'rpicam-vid.*h264'")
+        os.system("pkill -f 'rpicam-still'")
         os.system("pkill -f 'ffmpeg.*hls'")
         
         time.sleep(0.5)  # Give them time to die
@@ -1693,41 +1694,62 @@ def mjpeg_capture_loop():
     
     while camera_running and settings.get('use_mjpeg', False):
         try:
-            # Build rpicam-still command for continuous JPEG capture
+            # Take a snapshot of settings to avoid race conditions
+            local_settings = settings.copy()
+            
+            # Build rpicam-still command for single-shot JPEG capture
             cmd = [
                 'rpicam-still',
                 '--nopreview',
-                '--timeout', '0',  # Continuous mode
-                '--width', str(settings['width']),
-                '--height', str(settings['height']),
-                '--quality', str(settings['quality']),
-                '--brightness', str(settings['brightness']),
-                '--contrast', str(settings['contrast']),
-                '--saturation', str(settings['saturation']),
-                '--sharpness', str(settings['sharpness']),
-                '--exposure', settings['exposure'],
-                '--metering', settings['metering'],
-                '--awb', settings['awb'],
-                '--rotation', str(settings.get('rotation', 0)),
+                '--width', str(local_settings['width']),
+                '--height', str(local_settings['height']),
+                '--quality', str(local_settings['quality']),
+                '--brightness', str(local_settings['brightness']),
+                '--contrast', str(local_settings['contrast']),
+                '--saturation', str(local_settings['saturation']),
+                '--sharpness', str(local_settings['sharpness']),
+                '--exposure', local_settings['exposure'],
+                '--metering', local_settings['metering'],
+                '--awb', local_settings['awb'],
+                '--rotation', str(local_settings.get('rotation', 0)),
                 '-o', '-'  # Output to stdout
             ]
             
             # Add flips
-            if settings['hflip']:
+            if local_settings['hflip']:
                 cmd.append('--hflip')
-            if settings['vflip']:
+            if local_settings['vflip']:
                 cmd.append('--vflip')
             
             # Add advanced settings
-            if settings['ev'] != 0:
-                cmd.extend(['--ev', str(settings['ev'])])
-            if settings['denoise'] != 'auto':
-                cmd.extend(['--denoise', settings['denoise']])
-            if settings['hdr'] != 'off':
-                cmd.extend(['--hdr', settings['hdr']])
+            if local_settings['ev'] != 0:
+                cmd.extend(['--ev', str(local_settings['ev'])])
+            if local_settings.get('shutter', 0) > 0:
+                cmd.extend(['--shutter', str(local_settings['shutter'])])
+            if local_settings.get('gain', 0) > 0:
+                cmd.extend(['--gain', str(local_settings['gain'])])
+            if local_settings['denoise'] != 'auto':
+                cmd.extend(['--denoise', local_settings['denoise']])
+            if local_settings['hdr'] != 'off':
+                cmd.extend(['--hdr', local_settings['hdr']])
+            
+            # Apply zoom/ROI if configured
+            zoom_value = local_settings.get('zoom', 1.0)
+            try:
+                zoom = float(zoom_value)
+            except (TypeError, ValueError):
+                zoom = 1.0
+            
+            if zoom > 1.0:
+                roi_width = 1.0 / zoom
+                roi_height = 1.0 / zoom
+                roi_x = (1.0 - roi_width) / 2.0
+                roi_y = (1.0 - roi_height) / 2.0
+                roi_arg = f"{roi_x:.6f},{roi_y:.6f},{roi_width:.6f},{roi_height:.6f}"
+                cmd.extend(['--roi', roi_arg])
             
             # Calculate frame delay based on framerate
-            frame_delay = 1.0 / settings['framerate']
+            frame_delay = 1.0 / local_settings['framerate']
             
             logger.info(f"MJPEG capture command: {' '.join(cmd)}")
             
@@ -1765,6 +1787,12 @@ def generate_mjpeg_stream():
     logger.info("MJPEG stream client connected")
     
     try:
+        # Get framerate setting for stream delivery
+        framerate = settings.get('framerate', 30.0)
+        if framerate <= 0:
+            framerate = 30.0
+        frame_delay = 1.0 / framerate
+        
         while settings.get('use_mjpeg', False):
             with mjpeg_frame_lock:
                 frame = mjpeg_frame
@@ -1776,8 +1804,8 @@ def generate_mjpeg_stream():
                 # No frame yet, wait a bit
                 time.sleep(0.1)
             
-            # Small delay to control frame rate
-            time.sleep(0.033)  # ~30fps max
+            # Delay based on configured framerate
+            time.sleep(frame_delay)
             
     except GeneratorExit:
         logger.info("MJPEG stream client disconnected")
@@ -1848,12 +1876,12 @@ def serve_hls(filename):
 
 @app.route('/video_feed')
 def video_feed():
-    """Video feed endpoint - returns MJPEG stream if enabled, otherwise redirects to HLS"""
+    """Video feed endpoint - returns MJPEG stream if enabled, otherwise 404"""
     if settings.get('use_mjpeg', False):
         return Response(generate_mjpeg_stream(), mimetype='multipart/x-mixed-replace; boundary=frame')
     else:
-        # Return a simple response directing to use HLS
-        return jsonify({'mode': 'hls', 'message': 'Use HLS streaming at /hls/stream.m3u8'}), 200
+        # Not available in HLS mode
+        return jsonify({'error': 'MJPEG not enabled', 'mode': 'hls'}), 404
 
 @app.route('/settings')
 def get_settings():
@@ -2105,7 +2133,7 @@ def apply_settings():
             logger.info("Starting MJPEG streaming mode")
             with camera_process_lock:
                 camera_running = True
-            global mjpeg_capture_thread
+            # mjpeg_capture_thread already declared as global at module level
             if mjpeg_capture_thread and mjpeg_capture_thread.is_alive():
                 mjpeg_capture_thread.join(timeout=2)
             mjpeg_capture_thread = threading.Thread(target=mjpeg_capture_loop, daemon=True)

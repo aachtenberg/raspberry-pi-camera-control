@@ -1258,10 +1258,10 @@
                 applySetting(setting, isActive);
             } else if (setting === 'use_mjpeg') {
                 applySetting(setting, isActive);
-                // MJPEG mode change requires stream reload
+                // MJPEG mode change requires stream reload - allow 4s for camera restart
                 setTimeout(() => {
                     initVideoStream();
-                }, 2000);
+                }, 4000);
             } else if (setting === 'auto_exposure') {
                 applyDropdown('exposure', isActive ? 'normal' : 'sport');
             } else if (setting === 'auto_wb') {
