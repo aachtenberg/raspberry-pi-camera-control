@@ -46,6 +46,16 @@
             font-size: 22px;
             font-weight: 600;
             color: #e0e0e0;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .camera-name .status-icon {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4CAF50;
+            display: inline-block;
         }
         .ip-address {
             font-size: 12px;
@@ -505,6 +515,7 @@
         </div>
         <div class="top-center">
             <div class="camera-name">
+                <span class="status-icon" id="camera-status-icon" aria-hidden="true"></span>
                 <span id="camera-name">Garage Cam</span>
             </div>
         </div>
