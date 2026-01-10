@@ -2300,6 +2300,8 @@ def init_mqtt():
         mqtt_client.loop_start()
         logger.info(f"MQTT client initialized, connecting to {settings['mqtt_broker']}:{settings['mqtt_port']}")
     except Exception as e:
+        # Ensure mqtt_client is in a clean state on failure so reconnect logic can reinitialize it
+        mqtt_client = None
         logger.error(f"Failed to initialize MQTT: {e}")
 
 def reconnect_mqtt():
@@ -2313,9 +2315,11 @@ def reconnect_mqtt():
                 init_mqtt()
             else:
                 mqtt_client.reconnect()
+            # Only update timestamp after successful attempt
             mqtt_last_reconnect = current_time
         except Exception as e:
             logger.error(f"MQTT reconnect failed: {e}")
+            # Don't update timestamp on failure to retry sooner
 
 # In main - after load_settings()
 init_mqtt()
