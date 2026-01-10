@@ -1,0 +1,53 @@
+{
+  "name": "Pi Camera Control",
+  "short_name": "picamctl",
+  "description": "Raspberry Pi camera control with HLS/VLC streaming and MQTT integration",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#0a0e27",
+  "background_color": "#0a0e27",
+  "icons": [
+    {
+      "src": "/static/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/static/favicon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["photography", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Web Interface",
+      "short_name": "Web",
+      "description": "Open the web interface",
+      "url": "/web",
+      "icons": [
+        {
+          "src": "/static/favicon.svg",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "VLC Stream",
+      "short_name": "VLC",
+      "description": "Open the VLC streaming interface",
+      "url": "/vlc",
+      "icons": [
+        {
+          "src": "/static/favicon.svg",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
