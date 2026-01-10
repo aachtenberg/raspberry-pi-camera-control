@@ -42,10 +42,9 @@ streaming_mode = 'hls'  # Default to web UI mode
 streaming_mode_lock = threading.Lock()
 
 # VLC streaming - simple approach
-vlc_stream_active = False
 vlc_stream_clients = 0
 vlc_stream_lock = threading.Lock()
-MAX_VLC_CLIENTS = 2  # Limit concurrent VLC streams (Pi Zero resource constraint)
+MAX_VLC_CLIENTS = 1  # Limit concurrent VLC streams (Pi Zero resource constraint)
 
 # Bandwidth tracking
 bandwidth_lock = threading.Lock()
@@ -1881,13 +1880,7 @@ def get_system_info():
     try:
         # Get IP address
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip_address = s.getsockname()[0]
-            s.close()
-        except:
-            ip_address = "Unknown"
-        
+        ip_address = get_local_ip()
         # Get disk usage
         try:
             total, used, free = shutil.disk_usage("/")
