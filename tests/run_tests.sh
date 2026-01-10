@@ -40,19 +40,59 @@ if [ ! -f "venv/.installed" ]; then
     echo ""
 fi
 
-# Get Pi IP address
-PI_IP="${PI_IP:-192.168.0.169}"
+# Get Pi IP address (override with PI_IP env var or --base-url)
+# Default to mDNS name 'pizero1' commonly used in this project
+PI_IP="${PI_IP:-pizero1}"
 BASE_URL="http://${PI_IP}:5000"
+
+# Allow overriding base URL from command line with --base-url <url>
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --base-url)
+            if [ -n "$2" ]; then
+                BASE_URL="$2"
+                shift 2
+                break
+            else
+                echo "Error: --base-url requires a value"
+                exit 1
+            fi
+            ;;
+        --pi-host)
+            if [ -n "$2" ]; then
+                PI_IP="$2"
+                BASE_URL="http://${PI_IP}:5000"
+                shift 2
+                break
+            else
+                echo "Error: --pi-host requires a value"
+                exit 1
+            fi
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 echo "🎯 Target: $BASE_URL"
 echo ""
 
 # Check if camera service is running
 echo "🔍 Checking if camera service is reachable..."
-if ! curl -s --connect-timeout 5 "$BASE_URL" > /dev/null; then
-    echo "⚠️  Warning: Cannot reach $BASE_URL"
-    echo "   Make sure the camera control service is running on the Pi"
-    echo ""
+if [[ "$BASE_URL" =~ localhost|127.0.0.1 ]]; then
+    # If testing locally, try the local address first
+    if ! curl -s --connect-timeout 5 "$BASE_URL" > /dev/null; then
+        echo "⚠️  Warning: Cannot reach $BASE_URL"
+        echo "   Make sure the camera control service is running locally (e.g., run: PI_USER=aachten PI_HOST=pizero1 ./scripts/deploy_to_pi.sh)"
+        echo ""
+    fi
+else
+    if ! curl -s --connect-timeout 5 "$BASE_URL" > /dev/null; then
+        echo "⚠️  Warning: Cannot reach $BASE_URL"
+        echo "   Make sure the camera control service is running on the Pi and accessible from your machine"
+        echo ""
+    fi
 fi
 
 # Parse command line arguments
