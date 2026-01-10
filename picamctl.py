@@ -1879,8 +1879,8 @@ def get_system_info():
     
     try:
         # Get IP address
-        try:
         ip_address = get_local_ip()
+        
         # Get disk usage
         try:
             total, used, free = shutil.disk_usage("/")
