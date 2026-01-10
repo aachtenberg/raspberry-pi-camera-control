@@ -29,6 +29,7 @@ scp picamctl.py ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp templates/garage_cam_template.html ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp templates/landing.html ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp templates/vlc_stream.html ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
+scp -r static/ ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 # Skip settings file - preserve local Pi settings
 # scp picamctl_settings.json ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp systemd/picamctl.service ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/

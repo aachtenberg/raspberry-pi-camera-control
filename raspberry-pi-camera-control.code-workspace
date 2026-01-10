@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../PlatformIO/esp12f_ds18b20_temp_sensor/surveillance-arduino"
+		}
+	],
+	"settings": {}
+}

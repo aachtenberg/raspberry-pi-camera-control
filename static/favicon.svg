@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <style>
+      .camera-body { fill: #4a90e2; }
+      .camera-lens { fill: #2c5282; }
+      .camera-flash { fill: #e53e3e; }
+    </style>
+  </defs>
+
+  <!-- Camera body -->
+  <rect x="4" y="8" width="24" height="16" rx="2" class="camera-body"/>
+
+  <!-- Lens -->
+  <circle cx="16" cy="16" r="6" class="camera-lens"/>
+  <circle cx="16" cy="16" r="3" fill="#ffffff"/>
+
+  <!-- Flash -->
+  <rect x="22" y="10" width="4" height="2" class="camera-flash"/>
+
+  <!-- Viewfinder -->
+  <rect x="6" y="10" width="6" height="4" fill="none" stroke="#2c5282" stroke-width="1"/>
+</svg>
