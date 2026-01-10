@@ -43,7 +43,7 @@ fi
 # Get Pi IP address (override with PI_IP env var or --base-url)
 # Default to mDNS name 'pizero1' commonly used in this project
 PI_IP="${PI_IP:-pizero1}"
-BASE_URL="http://${PI_IP}:5000"
+BASE_URL="http://${PI_IP}:5000/web"
 
 # Allow overriding base URL from command line with --base-url <url>
 while [[ "$#" -gt 0 ]]; do
@@ -61,7 +61,7 @@ while [[ "$#" -gt 0 ]]; do
         --pi-host)
             if [ -n "$2" ]; then
                 PI_IP="$2"
-                BASE_URL="http://${PI_IP}:5000"
+                BASE_URL="http://${PI_IP}:5000/web"
                 shift 2
                 break
             else
