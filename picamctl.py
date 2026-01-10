@@ -2284,27 +2284,35 @@ def init_mqtt():
         logger.info("MQTT disabled in settings")
         return
 
-    mqtt_client = mqtt.Client(client_id=settings['camera_name'])
-    mqtt_client.on_connect = on_mqtt_connect
-    mqtt_client.on_disconnect = on_mqtt_disconnect
-
-    if settings['mqtt_user']:
-        mqtt_client.username_pw_set(settings['mqtt_user'], settings['mqtt_password'])
-
     try:
+        # Use CallbackAPIVersion for paho-mqtt v2.x compatibility
+        mqtt_client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION1,
+            client_id=settings['camera_name']
+        )
+        mqtt_client.on_connect = on_mqtt_connect
+        mqtt_client.on_disconnect = on_mqtt_disconnect
+
+        if settings['mqtt_user']:
+            mqtt_client.username_pw_set(settings['mqtt_user'], settings['mqtt_password'])
+
         mqtt_client.connect(settings['mqtt_broker'], settings['mqtt_port'], keepalive=60)
         mqtt_client.loop_start()
-        logger.info("MQTT client initialized")
+        logger.info(f"MQTT client initialized, connecting to {settings['mqtt_broker']}:{settings['mqtt_port']}")
     except Exception as e:
         logger.error(f"Failed to initialize MQTT: {e}")
 
 def reconnect_mqtt():
-    global mqtt_last_reconnect
+    global mqtt_last_reconnect, mqtt_client
     current_time = time.time()
     if current_time - mqtt_last_reconnect >= mqtt_reconnect_interval:
         logger.info("Attempting MQTT reconnect...")
         try:
-            mqtt_client.reconnect()
+            if mqtt_client is None:
+                # Client was never initialized, try full init
+                init_mqtt()
+            else:
+                mqtt_client.reconnect()
             mqtt_last_reconnect = current_time
         except Exception as e:
             logger.error(f"MQTT reconnect failed: {e}")
