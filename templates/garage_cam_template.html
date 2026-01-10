@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>picamctl</title>
+    <title>Garage Cam</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <!-- HLS.js for H.264 streaming -->
@@ -212,7 +212,8 @@
             bottom: 0;
             background: rgba(0, 0, 0, 0.5);
             backdrop-filter: blur(2px);
-            z-index: 999;
+            /* Keep overlay below top bar so settings icon remains clickable to close */
+            z-index: 50;
             opacity: 0;
             visibility: hidden;
             transition: opacity 0.3s ease, visibility 0.3s ease;
