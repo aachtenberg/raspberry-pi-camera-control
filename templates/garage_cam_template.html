@@ -818,16 +818,9 @@
                 </div>
                 <div class="slider-group">
                     <div class="slider-label">
-                        <span>Broker Host</span>
+                        <span>Broker (host:port)</span>
                     </div>
-                    <input type="text" id="mqtt_broker" placeholder="localhost or IP address" style="width: 100%; padding: 8px; background: #2a2f4a; color: #e0e0e0; border: 1px solid #3a3f5a; border-radius: 4px; font-size: 13px;" onchange="applyMqttBroker()">
-                </div>
-                <div class="slider-group">
-                    <div class="slider-label">
-                        <span>Port</span>
-                        <span class="slider-value" id="mqtt_port_val">1883</span>
-                    </div>
-                    <input type="range" id="mqtt_port" min="1" max="65535" value="1883" step="1" oninput="updateSlider('mqtt_port', this.value)">
+                    <input type="text" id="mqtt_broker_port" placeholder="192.168.0.167:1883" style="width: 100%; padding: 8px; background: #2a2f4a; color: #e0e0e0; border: 1px solid #3a3f5a; border-radius: 4px; font-size: 13px;" onchange="applyMqttBrokerPort()">
                 </div>
                 <div class="slider-group">
                     <div class="slider-label">
@@ -1344,8 +1337,7 @@
                 'ev': 'ev',
                 'framerate': 'framerate',
                 'quality': 'quality',
-                'snapshot_quality': 'snapshot_quality',
-                'mqtt_port': 'mqtt_port'
+                'snapshot_quality': 'snapshot_quality'
             };
 
             if (settingMap[id]) {
@@ -1821,12 +1813,8 @@
                     if (mqttToggle && settings.mqtt_enabled) {
                         mqttToggle.classList.add('active');
                     }
-                    if (settings.mqtt_broker) {
-                        document.getElementById('mqtt_broker').value = settings.mqtt_broker;
-                    }
-                    if (settings.mqtt_port) {
-                        document.getElementById('mqtt_port').value = settings.mqtt_port;
-                        updateSlider('mqtt_port', settings.mqtt_port);
+                    if (settings.mqtt_broker && settings.mqtt_port) {
+                        document.getElementById('mqtt_broker_port').value = settings.mqtt_broker + ':' + settings.mqtt_port;
                     }
                     if (settings.mqtt_base_topic) {
                         document.getElementById('mqtt_base_topic').value = settings.mqtt_base_topic;
@@ -1873,17 +1861,32 @@
             });
         }
 
-        function applyMqttBroker() {
-            const broker = document.getElementById('mqtt_broker').value;
-            if (!broker || broker.trim() === '') {
+        function applyMqttBrokerPort() {
+            const brokerPort = document.getElementById('mqtt_broker_port').value;
+            if (!brokerPort || brokerPort.trim() === '') {
                 showNotification('MQTT broker cannot be empty', 'warning');
+                return;
+            }
+
+            // Parse host:port format
+            const parts = brokerPort.split(':');
+            if (parts.length !== 2) {
+                showNotification('Format must be host:port (e.g., 192.168.0.167:1883)', 'warning');
+                return;
+            }
+
+            const broker = parts[0].trim();
+            const port = parseInt(parts[1].trim());
+
+            if (!broker || isNaN(port) || port < 1 || port > 65535) {
+                showNotification('Invalid host or port number', 'warning');
                 return;
             }
 
             fetch('/apply', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ mqtt_broker: broker })
+                body: JSON.stringify({ mqtt_broker: broker, mqtt_port: port })
             }).then(response => response.json()).then(data => {
                 showNotification('MQTT broker updated - reconnecting...', 'success');
             }).catch(error => {
