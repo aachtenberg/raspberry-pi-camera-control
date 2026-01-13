@@ -807,6 +807,40 @@
                 </div>
             </div>
 
+            <!-- MQTT -->
+            <div class="settings-section">
+                <h3>MQTT</h3>
+                <div class="toggle-group">
+                    <div class="toggle-item">
+                        <span class="toggle-label">Enable MQTT</span>
+                        <div class="toggle-switch" id="mqtt-enabled-toggle" onclick="toggleSwitch(this, 'mqtt_enabled')"></div>
+                    </div>
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Broker Host</span>
+                    </div>
+                    <input type="text" id="mqtt_broker" placeholder="localhost or IP address" style="width: 100%; padding: 8px; background: #2a2f4a; color: #e0e0e0; border: 1px solid #3a3f5a; border-radius: 4px; font-size: 13px;" onchange="applyMqttBroker()">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Port</span>
+                        <span class="slider-value" id="mqtt_port_val">1883</span>
+                    </div>
+                    <input type="range" id="mqtt_port" min="1" max="65535" value="1883" step="1" oninput="updateSlider('mqtt_port', this.value)">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Base Topic</span>
+                    </div>
+                    <input type="text" id="mqtt_base_topic" placeholder="surveillance" style="width: 100%; padding: 8px; background: #2a2f4a; color: #e0e0e0; border: 1px solid #3a3f5a; border-radius: 4px; font-size: 13px;" onchange="applyMqttBaseTopic()">
+                </div>
+                <div style="font-size: 11px; color: #888; margin-top: 10px; line-height: 1.5; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                    <div>💡 MQTT broadcasts camera status and metrics to a broker</div>
+                    <div style="margin-top: 5px;">Example broker: 192.168.0.167:1883</div>
+                </div>
+            </div>
+
             <!-- SYSTEM -->
             <div class="settings-section">
                 <h3>SYSTEM</h3>
@@ -1270,6 +1304,9 @@
                 setTimeout(() => {
                     initVideoStream();
                 }, 4000);
+            } else if (setting === 'mqtt_enabled') {
+                applySetting(setting, isActive);
+                showNotification(isActive ? 'MQTT enabled - reconnecting...' : 'MQTT disabled', 'info');
             } else if (setting === 'auto_exposure') {
                 applyDropdown('exposure', isActive ? 'normal' : 'sport');
             } else if (setting === 'auto_wb') {
@@ -1307,7 +1344,8 @@
                 'ev': 'ev',
                 'framerate': 'framerate',
                 'quality': 'quality',
-                'snapshot_quality': 'snapshot_quality'
+                'snapshot_quality': 'snapshot_quality',
+                'mqtt_port': 'mqtt_port'
             };
 
             if (settingMap[id]) {
@@ -1778,6 +1816,22 @@
                         mjpegToggle.classList.add('active');
                     }
 
+                    // Load MQTT settings
+                    const mqttToggle = document.getElementById('mqtt-enabled-toggle');
+                    if (mqttToggle && settings.mqtt_enabled) {
+                        mqttToggle.classList.add('active');
+                    }
+                    if (settings.mqtt_broker) {
+                        document.getElementById('mqtt_broker').value = settings.mqtt_broker;
+                    }
+                    if (settings.mqtt_port) {
+                        document.getElementById('mqtt_port').value = settings.mqtt_port;
+                        updateSlider('mqtt_port', settings.mqtt_port);
+                    }
+                    if (settings.mqtt_base_topic) {
+                        document.getElementById('mqtt_base_topic').value = settings.mqtt_base_topic;
+                    }
+
                     isLoadingSettings = false;  // Reset flag after loading
                 });
         }
@@ -1816,6 +1870,44 @@
             }).catch(error => {
                 showNotification('Failed to update camera name', 'error');
                 console.error('Camera name update error:', error);
+            });
+        }
+
+        function applyMqttBroker() {
+            const broker = document.getElementById('mqtt_broker').value;
+            if (!broker || broker.trim() === '') {
+                showNotification('MQTT broker cannot be empty', 'warning');
+                return;
+            }
+
+            fetch('/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ mqtt_broker: broker })
+            }).then(response => response.json()).then(data => {
+                showNotification('MQTT broker updated - reconnecting...', 'success');
+            }).catch(error => {
+                showNotification('Failed to update MQTT broker', 'error');
+                console.error('MQTT broker update error:', error);
+            });
+        }
+
+        function applyMqttBaseTopic() {
+            const topic = document.getElementById('mqtt_base_topic').value;
+            if (!topic || topic.trim() === '') {
+                showNotification('MQTT base topic cannot be empty', 'warning');
+                return;
+            }
+
+            fetch('/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ mqtt_base_topic: topic })
+            }).then(response => response.json()).then(data => {
+                showNotification('MQTT base topic updated', 'success');
+            }).catch(error => {
+                showNotification('Failed to update MQTT base topic', 'error');
+                console.error('MQTT base topic update error:', error);
             });
         }
 
