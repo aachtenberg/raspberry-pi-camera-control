@@ -1743,6 +1743,7 @@
                     if (settings.camera_name) {
                         document.getElementById('camera_name_input').value = settings.camera_name;
                         document.getElementById('camera-name').textContent = settings.camera_name;
+                        document.title = settings.camera_name;
                     }
 
                     // Set Resolution Dropdown
@@ -1854,6 +1855,7 @@
             }).then(response => response.json()).then(data => {
                 // Update the display
                 document.getElementById('camera-name').textContent = cameraName;
+                document.title = cameraName;
                 showNotification('Camera name updated', 'success');
             }).catch(error => {
                 showNotification('Failed to update camera name', 'error');
