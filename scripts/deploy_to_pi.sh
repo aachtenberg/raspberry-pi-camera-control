@@ -36,16 +36,11 @@ scp systemd/picamctl.service ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp scripts/manage_service.sh ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp requirements.txt ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 
-# Install Python dependencies if not already installed
-echo "📦 Checking and installing Python dependencies..."
+# Install Python dependencies
+echo "📦 Installing Python dependencies..."
 ssh ${PI_USER}@${PI_HOST} << EOF
     cd ${REMOTE_DIR}
-    pip3 install -r requirements.txt --break-system-packages --no-deps --dry-run > /dev/null 2>&1
-    if [ \$? -ne 0 ]; then
-        pip3 install -r requirements.txt --break-system-packages
-    else
-        echo "Dependencies already satisfied"
-    fi
+    pip3 install -r requirements.txt --break-system-packages
 EOF
 
 # Make scripts executable
