@@ -73,9 +73,9 @@ fi
 echo "⚙️  Installing systemd service..."
 ssh ${PI_USER}@${PI_HOST} "sudo cp ${REMOTE_DIR}/picamctl.service /etc/systemd/system/ && sudo systemctl daemon-reload"
 
-# Restart service
-echo "🔄 Restarting picamctl service..."
-ssh ${PI_USER}@${PI_HOST} "sudo systemctl restart picamctl"
+# Enable and restart service
+echo "🔄 Enabling and restarting picamctl service..."
+ssh ${PI_USER}@${PI_HOST} "sudo systemctl enable picamctl && sudo systemctl restart picamctl"
 
 # Check status
 echo ""
