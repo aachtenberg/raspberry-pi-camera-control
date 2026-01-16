@@ -2134,12 +2134,18 @@ def apply_settings():
 
 @app.route('/reset', methods=['POST'])
 def reset_settings():
-    """Reset all settings to defaults"""
+    """Reset all settings to defaults (preserves camera name and MQTT settings)"""
     global camera_running
+
+    # Preserve camera name and MQTT settings
+    preserved_camera_name = settings.get('camera_name', 'Garage Cam')
+    preserved_mqtt_enabled = settings.get('mqtt_enabled', False)
+    preserved_mqtt_broker = settings.get('mqtt_broker', '192.168.0.167')
+    preserved_mqtt_port = settings.get('mqtt_port', 1883)
+    preserved_mqtt_base_topic = settings.get('mqtt_base_topic', 'surveillance')
 
     # Reset to default settings
     default_settings = {
-        'camera_name': 'Garage Cam',
         'width': 1280,
         'height': 720,
         'framerate': 15,
@@ -2165,6 +2171,13 @@ def reset_settings():
 
     # Update runtime settings
     settings.update(default_settings)
+    
+    # Restore preserved settings
+    settings['camera_name'] = preserved_camera_name
+    settings['mqtt_enabled'] = preserved_mqtt_enabled
+    settings['mqtt_broker'] = preserved_mqtt_broker
+    settings['mqtt_port'] = preserved_mqtt_port
+    settings['mqtt_base_topic'] = preserved_mqtt_base_topic
 
     # Stop camera and reset flag
     stop_camera_process()
