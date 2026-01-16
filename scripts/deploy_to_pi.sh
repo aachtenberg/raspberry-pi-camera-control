@@ -36,7 +36,11 @@ scp systemd/picamctl.service ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp scripts/manage_service.sh ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 scp requirements.txt ${PI_USER}@${PI_HOST}:${REMOTE_DIR}/
 
-# Install Python dependencies
+# Install system dependencies (required for fresh installs)
+echo "📦 Installing system dependencies..."
+ssh ${PI_USER}@${PI_HOST} "set -e; echo '   Running apt-get update...'; sudo apt-get update -qq; echo '   Installing system packages...'; sudo apt-get install -y -qq python3-pip python3-flask python3-paho-mqtt ffmpeg" && echo "   System dependencies installed" || echo "   ⚠️  Some dependencies may have failed - check the apt-get output above"
+
+# Install Python dependencies (for any extras not in apt)
 echo "📦 Installing Python dependencies..."
 ssh ${PI_USER}@${PI_HOST} << EOF
     cd ${REMOTE_DIR}

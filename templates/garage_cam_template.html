@@ -1606,9 +1606,12 @@
         function applyDarkModePreset() {
             // Apply dark room optimized settings - send all at once
             const presetSettings = {
-                gain: 2.0,
-                shutter: 200000,  // 200ms in microseconds
-                contrast: 0.5
+                gain: 6.0,           // Maximum gain for low light
+                shutter: 800000,     // 800ms exposure for very dark rooms
+                contrast: 1.5,       // Boost contrast
+                brightness: 0.3,     // Increase brightness
+                ev: 2.0,             // Positive EV compensation
+                saturation: 0.5      // Slight saturation boost
             };
 
             fetch('/apply', {
@@ -1617,14 +1620,20 @@
                 body: JSON.stringify(presetSettings)
             }).then(() => {
                 // Update UI sliders
-                document.getElementById('gain').value = 2;
-                document.getElementById('shutter').value = 200;  // UI shows 0-1200 scale
-                document.getElementById('contrast').value = 0.5;
-                updateSlider('gain', 2);
-                updateSlider('shutter', 200);
-                updateSlider('contrast', 0.5);
+                document.getElementById('gain').value = 6;
+                document.getElementById('shutter').value = 800;  // UI shows 0-1200 scale
+                document.getElementById('contrast').value = 1.5;
+                document.getElementById('brightness').value = 0.3;
+                document.getElementById('ev').value = 2.0;
+                document.getElementById('saturation').value = 0.5;
+                updateSlider('gain', 6);
+                updateSlider('shutter', 800);
+                updateSlider('contrast', 1.5);
+                updateSlider('brightness', 0.3);
+                updateSlider('ev', 2.0);
+                updateSlider('saturation', 0.5);
 
-                showNotification('Dark Mode Preset Applied', 'success');
+                showNotification('Dark Room Preset Applied - Max Sensitivity', 'success');
             });
         }
 
@@ -1717,16 +1726,16 @@
         }
 
         function resetCameraSettings() {
-            if (confirm('Reset all camera settings to defaults? This will save defaults to disk and reload the page.')) {
+            if (confirm('Reset camera settings to defaults?\n\nThis will NOT reset:\n• Camera name\n• MQTT configuration\n\nSettings will be saved and the page will reload.')) {
                 fetch('/reset', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'}
                 }).then(response => response.json()).then(data => {
-                    showNotification('Settings reset to defaults', 'success');
+                    showNotification('Camera settings reset (name & MQTT preserved)', 'success');
                     // Wait a moment before reloading to ensure settings are saved
                     setTimeout(() => {
                         location.reload();
-                    }, 1000);
+                    }, 1500);
                 }).catch(error => {
                     showNotification('Failed to reset settings', 'error');
                     console.error('Reset error:', error);
