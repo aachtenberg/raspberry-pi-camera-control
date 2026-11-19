@@ -355,6 +355,71 @@ class TestAPIEndpoints:
         expect(bandwidth).to_be_visible()
 
 
+class TestStreamingSettings:
+    """On-demand toggle and bitrate dropdown in the Streaming section"""
+
+    @staticmethod
+    def _settings(page: Page, base_url: str) -> dict:
+        """Read the saved settings straight from the backend"""
+        return page.request.get(base_url.rsplit('/web', 1)[0] + '/settings').json()
+
+    def _open_settings(self, page: Page, base_url: str):
+        page.goto(base_url)
+        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_timeout(1000)  # Wait for settings to load
+        page.locator(".settings-icon").click()
+        page.wait_for_timeout(300)
+
+    def test_on_demand_toggle_reflects_setting(self, page: Page, base_url: str):
+        """The toggle exists and shows the saved mode"""
+        self._open_settings(page, base_url)
+        toggle = page.locator("#on-demand-toggle")
+        expect(toggle).to_be_attached()
+
+        on_demand = self._settings(page, base_url).get("on_demand", True)
+        is_active = "active" in (toggle.get_attribute("class") or "")
+        assert is_active == bool(on_demand)
+
+    def test_on_demand_toggle_saves(self, page: Page, base_url: str):
+        """Clicking the toggle switches between on-demand and continuous, and back"""
+        self._open_settings(page, base_url)
+        toggle = page.locator("#on-demand-toggle")
+        before = bool(self._settings(page, base_url).get("on_demand", True))
+
+        toggle.click()
+        page.wait_for_timeout(1500)  # Settings are sent after an 800ms debounce
+        assert bool(self._settings(page, base_url).get("on_demand")) == (not before)
+
+        toggle.click()  # Restore
+        page.wait_for_timeout(1500)
+        assert bool(self._settings(page, base_url).get("on_demand")) == before
+
+    def test_bitrate_dropdown_options(self, page: Page, base_url: str):
+        """The bitrate dropdown offers Auto plus fixed rates"""
+        self._open_settings(page, base_url)
+        bitrate = page.locator("#bitrate")
+        expect(bitrate).to_be_attached()
+
+        values = bitrate.locator("option").evaluate_all("options => options.map(o => o.value)")
+        assert "0" in values, "Auto option missing"
+        assert "3000000" in values and "5000000" in values
+
+    def test_bitrate_change_is_saved(self, page: Page, base_url: str):
+        """Choosing a bitrate stores it; choosing the old value restores it"""
+        self._open_settings(page, base_url)
+        bitrate = page.locator("#bitrate")
+        before = str(self._settings(page, base_url).get("bitrate", 0) or 0)
+        target = "2000000" if before != "2000000" else "3000000"
+
+        bitrate.select_option(target)
+        page.wait_for_timeout(1000)
+        assert str(self._settings(page, base_url).get("bitrate")) == target
+
+        bitrate.select_option(before)  # Restore
+        page.wait_for_timeout(1000)
+        assert str(self._settings(page, base_url).get("bitrate", 0) or 0) == before
+
+
 @pytest.mark.slow
 class TestExtendedFunctionality:
     """Extended tests that take longer to run"""

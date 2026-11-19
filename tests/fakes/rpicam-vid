@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Stand-in for rpicam-vid in tests: produces a real H.264 test pattern with ffmpeg.
+
+It honours the options the app relies on (--width, --height, --framerate, --intra,
+--bitrate) and, like the real encoder, falls back to one keyframe every 60 frames
+when --intra is not given. Each invocation is appended to $FAKE_CAMERA_LOG as a
+JSON list of arguments so tests can check what the app asked for.
+"""
+import json
+import os
+import signal
+import subprocess
+import sys
+
+args = sys.argv[1:]
+
+log_path = os.environ.get('FAKE_CAMERA_LOG')
+if log_path:
+    with open(log_path, 'a') as log:
+        log.write(json.dumps(['rpicam-vid'] + args) + '\n')
+
+if '--list-cameras' in args:
+    print('Available cameras\n-----------------\n0 : fake [640x480 10-bit] (/fake/camera)')
+    sys.exit(0)
+
+
+def option(name, default):
+    return args[args.index(name) + 1] if name in args else default
+
+
+codec = option('--codec', 'h264')
+if codec != 'h264':
+    sys.exit(f'fake rpicam-vid: unsupported codec {codec}')
+
+framerate = option('--framerate', '30')
+intra = option('--intra', '0')
+if intra == '0':
+    intra = '60'  # the hardware encoder's default
+bitrate = option('--bitrate', '0')
+if bitrate == '0':
+    bitrate = '10000000'
+
+command = [
+    'ffmpeg', '-hide_banner', '-loglevel', 'error',
+    '-re', '-f', 'lavfi',
+    '-i', f"testsrc2=size={option('--width', '640')}x{option('--height', '480')}:rate={framerate}",
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p',
+    '-g', intra, '-keyint_min', intra, '-sc_threshold', '0',
+    '-b:v', bitrate, '-maxrate', bitrate, '-bufsize', bitrate,
+    '-x264-params', 'repeat-headers=1',  # same as --inline: headers with every keyframe
+    '-f', 'h264', '-',
+]
+child = subprocess.Popen(command)
+
+
+def stop(signum, frame):
+    child.terminate()
+
+
+signal.signal(signal.SIGTERM, stop)
+signal.signal(signal.SIGINT, stop)
+sys.exit(child.wait())
