@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+- CI: stream pipeline tests against a fake camera (`tests/test_stream.py`), a lint workflow (shellcheck, ruff, template JavaScript), and UI tests for the on-demand toggle and bitrate dropdown.
+- Removed the unused `vlc_buffer_reader()` (it referenced undefined names) and fixed shellcheck warnings in the scripts.
+- Streaming: on-demand mode (default, switchable to continuous in Settings > Streaming). The camera starts when a viewer opens the page and stops after `idle_timeout` seconds (default 60) without stream requests.
+- Streaming: bitrate cap, set in Settings > Streaming. Auto is 3 Mbit/s at 720p, 5 Mbit/s at 1080p, 1.5 Mbit/s below that.
+- Streaming: faster start (ffmpeg no longer holds back the first ~5 seconds) and clock-based segment numbers so names never repeat across camera restarts.
+- MQTT: `camera_ready` stays true in standby; new `camera_state` (streaming, starting, standby, error, stopped) and `on_demand` in status, `streaming` (0/1) in metrics.
+- Fix: MQTT connected before its publish helpers were defined, which could drop the boot event with a NameError.
+- VLC mode: leaving it now resets the camera state so the web stream starts again on the next view.
+- Streaming: request one keyframe per second from the encoder so HLS segments are really 1s long (they were 4-6s, putting the web player 10s+ behind live).
+- Deploy script: abort early when the Pi cannot resolve public DNS names, and apply host settings (Wi-Fi power save off, 100M journal cap, Raspberry Pi Connect disabled).
 - Document recent updates that were applied directly to `master` and to ensure they go through PRs in the future.
 
 ## 2026-01-10

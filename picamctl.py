@@ -41,6 +41,13 @@ mjpeg_capture_thread = None
 streaming_mode = 'hls'  # Default to web UI mode
 streaming_mode_lock = threading.Lock()
 
+# On-demand streaming: with settings['on_demand'] the HLS pipeline runs only while
+# someone is watching and stops after settings['idle_timeout'] seconds without a request
+last_viewer_time = 0
+camera_start_lock = threading.Lock()  # Held while a camera start is in progress
+camera_last_start_failed = False
+snapshot_in_progress = False
+
 # VLC streaming - simple approach
 vlc_stream_clients = 0
 vlc_stream_lock = threading.Lock()
@@ -136,6 +143,9 @@ settings = {
     'snapshot_quality': 100,  # Snapshot JPEG quality (80-100)
     'zoom': 1.0,  # Digital zoom (1.0 = no zoom, max depends on user preference)
     'use_mjpeg': False,  # Use MJPEG streaming instead of HLS (better for Pi 4/5, not recommended for Pi Zero)
+    'bitrate': 0,  # Video bitrate in bits/second (0 = automatic by resolution)
+    'on_demand': True,  # Run the camera only while someone is watching (False = continuous)
+    'idle_timeout': 60,  # On-demand: seconds without a viewer before the camera stops
     'mqtt_enabled': True,
     'mqtt_broker': 'localhost',
     'mqtt_port': 1883,
@@ -1019,6 +1029,115 @@ HTML = '''
 </html>
 '''
 
+def get_stream_bitrate():
+    """Video bitrate in bits/second: the configured value, or a default for the resolution"""
+    try:
+        configured = int(settings.get('bitrate', 0) or 0)
+    except (TypeError, ValueError):
+        configured = 0
+    if configured > 0:
+        return configured
+    pixels = int(settings['width']) * int(settings['height'])
+    if pixels >= 1920 * 1080:
+        return 5000000
+    if pixels >= 1280 * 720:
+        return 3000000
+    return 1500000
+
+def clear_hls_dir():
+    """Remove the playlist and segments so a stale stream is never served"""
+    if not os.path.isdir(HLS_DIR):
+        return
+    try:
+        removed = 0
+        for file in os.listdir(HLS_DIR):
+            if file.endswith(('.ts', '.m3u8')):
+                try:
+                    os.remove(os.path.join(HLS_DIR, file))
+                    removed += 1
+                except Exception as e:
+                    logger.warning(f"Could not remove {file}: {e}")
+        if removed:
+            logger.info(f"Removed {removed} old HLS files")
+    except Exception as e:
+        logger.error(f"Error cleaning HLS directory: {e}")
+
+def on_demand_active():
+    """True when the HLS pipeline should run only while someone is watching"""
+    return (bool(settings.get('on_demand', True)) and streaming_mode == 'hls'
+            and not settings.get('use_mjpeg', False) and use_hw_acceleration)
+
+def note_viewer():
+    """Record that a viewer asked for the stream just now"""
+    global last_viewer_time
+    last_viewer_time = time.time()
+
+def get_camera_state():
+    """One of: streaming, starting, standby (on-demand, idle), error, stopped"""
+    if camera_running:
+        return 'streaming'
+    if camera_start_lock.locked():
+        return 'starting'
+    if camera_last_start_failed:
+        return 'error'
+    if on_demand_active():
+        return 'standby'
+    return 'stopped'
+
+def camera_is_ready():
+    """Standby counts as ready: the camera is healthy and starts when a viewer connects"""
+    return get_camera_state() in ('streaming', 'starting', 'standby')
+
+def ensure_camera_running():
+    """Start the HLS pipeline unless it is running, starting, or the camera is in use"""
+    if camera_running or camera_start_lock.locked() or snapshot_in_progress:
+        return
+    if streaming_mode != 'hls' or settings.get('use_mjpeg', False) or not use_hw_acceleration:
+        return
+    logger.info("Viewer connected - starting camera")
+    threading.Thread(target=start_h264_camera, daemon=True).start()
+
+def viewer_present():
+    """True when someone asked for the stream within the idle timeout"""
+    return time.time() - last_viewer_time < max(15, int(settings.get('idle_timeout', 60)))
+
+def resume_camera():
+    """Restart the stream after a snapshot or settings change, unless on-demand mode has nobody to serve"""
+    global camera_running
+    if on_demand_active() and not viewer_present():
+        logger.info("On-demand mode with no viewer - leaving the camera stopped")
+        with camera_process_lock:
+            camera_running = False
+        return
+    threading.Thread(target=start_h264_camera, daemon=True).start()
+
+def idle_watchdog():
+    """On-demand mode: stop the HLS pipeline once nobody has asked for the stream for a while"""
+    global camera_running
+    while True:
+        time.sleep(5)
+        try:
+            if not (on_demand_active() and camera_running) or snapshot_in_progress:
+                continue
+            idle = time.time() - last_viewer_time
+            if not viewer_present():
+                logger.info(f"No viewers for {int(idle)}s - stopping camera (on-demand mode)")
+                stop_camera_process()
+                with camera_process_lock:
+                    camera_running = False
+                clear_hls_dir()
+        except Exception as e:
+            logger.error(f"Idle watchdog error: {e}")
+
+def probe_camera():
+    """Check that a camera is detected, without starting a stream"""
+    try:
+        result = subprocess.run(['rpicam-vid', '--list-cameras'], capture_output=True, text=True, timeout=20)
+        return result.returncode == 0 and 'Available cameras' in (result.stdout + result.stderr)
+    except Exception as e:
+        logger.error(f"Camera probe failed: {e}")
+        return False
+
 def stop_camera_process():
     """Stop the current camera process if running"""
     global current_camera_process
@@ -1058,6 +1177,23 @@ def stop_camera_process():
         logger.info("Camera processes stopped")
 
 def start_h264_camera():
+    """Start the HLS camera pipeline; a start that is already in progress is not repeated"""
+    global camera_last_start_failed, camera_running
+    if not camera_start_lock.acquire(blocking=False):
+        logger.info("Camera start already in progress")
+        return False
+    try:
+        started = _start_h264_camera()
+        camera_last_start_failed = not started
+        if not started:
+            # Not running: lets the next viewer request try again
+            with camera_process_lock:
+                camera_running = False
+        return started
+    finally:
+        camera_start_lock.release()
+
+def _start_h264_camera():
     """Start H.264 hardware-accelerated camera with HLS output"""
     global current_camera_process, camera_running
 
@@ -1066,20 +1202,14 @@ def start_h264_camera():
     logger.info(f"HLS directory: {HLS_DIR}")
 
     # Clean up old HLS segments
-    try:
-        for file in os.listdir(HLS_DIR):
-            if file.endswith(('.ts', '.m3u8')):
-                try:
-                    os.remove(os.path.join(HLS_DIR, file))
-                    logger.info(f"Removed old HLS file: {file}")
-                except Exception as e:
-                    logger.warning(f"Could not remove {file}: {e}")
-    except Exception as e:
-        logger.error(f"Error cleaning HLS directory: {e}")
+    clear_hls_dir()
 
     rotation = int(settings.get('rotation', 0))
     needs_transpose = rotation in (90, 270)
     transpose_filter = 'transpose=1' if rotation == 90 else 'transpose=2'
+
+    # Frames between keyframes: one second's worth at the configured framerate
+    keyframe_interval = max(1, int(round(float(settings['framerate']))))
 
     # Use H.264 encoding - output to stdout, then use process substitution to split stream
     cmd = [
@@ -1098,6 +1228,10 @@ def start_h264_camera():
         '--metering', settings['metering'],
         '--awb', settings['awb'],
         '--inline',  # Inline headers for streaming
+        # One keyframe per second. HLS can only cut segments at keyframes, and the
+        # encoder default of one every 60 frames turns -hls_time 1 into 4-6s segments.
+        '--intra', str(keyframe_interval),
+        '--bitrate', str(get_stream_bitrate()),
         '-o', '-'  # Output to stdout
     ]
 
@@ -1136,9 +1270,19 @@ def start_h264_camera():
         'ffmpeg',
         '-hide_banner',
         '-loglevel', 'warning',
+    ]
+    if not needs_transpose:
+        # Copying the stream needs no analysis beyond the headers. The default probe
+        # holds back the first ~5 seconds, which delays the picture on every start.
+        ffmpeg_cmd.extend([
+            '-probesize', '65536',
+            '-analyzeduration', '0',
+            '-framerate', str(settings['framerate']),
+        ])
+    ffmpeg_cmd.extend([
         '-f', 'h264',
         '-i', '-',  # Read from stdin
-    ]
+    ])
 
     if needs_transpose:
         # Decode, rotate, and re-encode when 90/270 is requested
@@ -1149,7 +1293,7 @@ def start_h264_camera():
             '-preset', 'ultrafast',
             '-tune', 'zerolatency',
             '-pix_fmt', 'yuv420p',
-            '-x264-params', 'keyint=30:min-keyint=30:scenecut=0'
+            '-x264-params', f'keyint={keyframe_interval}:min-keyint={keyframe_interval}:scenecut=0'
         ])
     else:
         # Zero-copy when no rotation transpose is needed
@@ -1160,6 +1304,8 @@ def start_h264_camera():
         '-hls_time', '1',  # 1 second segments for lower latency
         '-hls_list_size', '5',  # Keep last 5 segments (reduced from 10)
         '-hls_flags', 'delete_segments+append_list',
+        # Number segments from the clock so names never repeat across camera restarts
+        '-hls_start_number_source', 'epoch',
         '-hls_segment_filename', os.path.join(HLS_DIR, 'segment_%03d.ts'),
         os.path.join(HLS_DIR, 'stream.m3u8')
     ])
@@ -1291,40 +1437,12 @@ def start_stream():
         # ffmpeg will auto-restart when old connection closes
         logger.info("Waiting for ffmpeg to be ready for new connection...")
         time.sleep(2)  # Give ffmpeg time to restart and listen
-        threading.Thread(target=start_h264_camera, daemon=True).start()
+        resume_camera()
 
 
 # ============================================================================
 # VLC Streaming (Low Latency Direct H.264 Stream via TCP)
 # ============================================================================
-
-def vlc_buffer_reader():
-    """Background thread that continuously reads from camera and buffers chunks"""
-    global vlc_stream_buffer
-    fifo_path = os.path.join(os.path.dirname(__file__), 'vlc_stream.fifo')
-    
-    try:
-        logger.info("VLC buffer thread: Opening FIFO for reading...")
-        with open(fifo_path, 'rb', buffering=0) as fifo:
-            logger.info("VLC buffer thread: Connected to camera FIFO")
-            while True:
-                chunk = fifo.read(8192)
-                if not chunk:
-                    logger.warning("VLC buffer thread: No data from FIFO")
-                    break
-                
-                # Add chunk to circular buffer
-                with vlc_buffer_lock:
-                    vlc_stream_buffer.append(chunk)
-                    # Keep buffer size limited
-                    if len(vlc_stream_buffer) > vlc_buffer_max_chunks:
-                        vlc_stream_buffer.pop(0)
-                        
-    except Exception as e:
-        logger.error(f"VLC buffer thread error: {e}")
-    finally:
-        logger.info("VLC buffer thread: Exiting")
-
 
 def start_vlc_camera():
     """Start camera in VLC streaming mode - direct H.264 output"""
@@ -1351,6 +1469,7 @@ def start_vlc_camera():
         '--metering', settings['metering'],
         '--awb', settings['awb'],
         '--inline',
+        '--bitrate', str(get_stream_bitrate()),
         '-o', '-'  # Output to stdout
     ]
     
@@ -1821,6 +1940,9 @@ def web_mode():
             streaming_mode = 'hls'
             threading.Thread(target=start_h264_camera, daemon=True).start()
             time.sleep(2)  # Wait for camera to start
+    # Opening the page counts as a viewer: start the camera now so it is ready sooner
+    note_viewer()
+    ensure_camera_running()
     return render_template_string(get_html())
 
 @app.route('/vlc')
@@ -1849,7 +1971,12 @@ def vlc_mode():
 
 @app.route('/hls/<path:filename>')
 def serve_hls(filename):
-    """Serve HLS playlist and segments"""
+    """Serve HLS playlist and segments; a request also starts the camera if it is idle"""
+    note_viewer()
+    ensure_camera_running()
+    if filename.endswith('.m3u8') and (not camera_running or not os.path.exists(os.path.join(HLS_DIR, filename))):
+        # Camera is stopped or still starting: 503 tells the player to retry shortly
+        return jsonify({'error': 'Stream starting', 'state': get_camera_state()}), 503, {'Retry-After': '1'}
     try:
         return send_from_directory(HLS_DIR, filename)
     except Exception as e:
@@ -1898,7 +2025,10 @@ def get_system_info():
             'disk': disk_info,
             'bandwidth': bandwidth_kbps,
             'vlc_stream_running': (streaming_mode == 'vlc'),
-            'mqtt_connected': mqtt_connected
+            'mqtt_connected': mqtt_connected,
+            'camera_state': get_camera_state(),
+            'on_demand': on_demand_active(),
+            'bitrate': get_stream_bitrate()
         })
     except Exception as e:
         logger.error(f"Error in /system_info: {e}")
@@ -1908,10 +2038,14 @@ def get_system_info():
 @app.route('/api/stop_vlc_mode', methods=['POST'])
 def stop_vlc_mode_endpoint():
     """Stop VLC mode and return to landing page"""
-    global streaming_mode
+    global streaming_mode, camera_running
     with streaming_mode_lock:
         streaming_mode = 'hls'  # Reset to default
     stop_camera_process()
+    with camera_process_lock:
+        camera_running = False  # So the next HLS viewer (or continuous mode) starts it again
+    if not on_demand_active():
+        ensure_camera_running()
     return jsonify({'success': True})
 
 
@@ -1945,6 +2079,15 @@ def stream_h264():
 
 @app.route('/snapshot', methods=['POST'])
 def take_snapshot():
+    """Take a snapshot; viewers must not restart the stream while the camera is in use"""
+    global snapshot_in_progress
+    snapshot_in_progress = True
+    try:
+        return _take_snapshot()
+    finally:
+        snapshot_in_progress = False
+
+def _take_snapshot():
     """Take a high-quality snapshot by temporarily stopping the video stream"""
     try:
         from datetime import datetime
@@ -2010,7 +2153,7 @@ def take_snapshot():
         if use_hw_acceleration:
             logger.info("Restarting video stream...")
             time.sleep(0.5)
-            threading.Thread(target=start_h264_camera, daemon=True).start()
+            resume_camera()
 
         if result.returncode == 0 and os.path.exists(filepath):
             logger.info(f"Snapshot saved: {filepath}")
@@ -2037,13 +2180,13 @@ def take_snapshot():
         logger.error("Snapshot timed out")
         if use_hw_acceleration:
             time.sleep(0.5)
-            threading.Thread(target=start_h264_camera, daemon=True).start()
+            resume_camera()
         return jsonify({'success': False, 'error': 'Camera timeout'}), 500
     except Exception as e:
         logger.error(f"Snapshot error: {e}")
         if use_hw_acceleration:
             time.sleep(0.5)
-            threading.Thread(target=start_h264_camera, daemon=True).start()
+            resume_camera()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/snapshots/<filename>')
@@ -2079,7 +2222,7 @@ def apply_settings():
     # Only restart for settings that require rpicam-vid restart
     restart_required_settings = {
         'width', 'height', 'framerate', 'vflip', 'hflip',
-        'rotation', 'exposure', 'denoise', 'hdr', 'zoom', 'use_mjpeg'
+        'rotation', 'exposure', 'denoise', 'hdr', 'zoom', 'use_mjpeg', 'bitrate'
     }
     
     # Check if any restart-required settings changed
@@ -2117,6 +2260,9 @@ def apply_settings():
         else:
             logger.info("Starting HLS streaming mode")
             threading.Thread(target=start_stream, daemon=True).start()
+    elif 'on_demand' in new_settings and not settings.get('on_demand'):
+        # Switched to continuous mode: start the camera now instead of waiting for a viewer
+        ensure_camera_running()
     # Publish settings change event if any changes were made
     if new_settings:
         publish_event("settings_changed", "info")
@@ -2208,7 +2354,7 @@ def restart_service():
         
         # Restart the stream
         if use_hw_acceleration:
-            threading.Thread(target=start_h264_camera, daemon=True).start()
+            resume_camera()
         
         logger.info("Camera service restart initiated")
         return jsonify({'status': 'ok', 'message': 'Camera service restarting'})
@@ -2226,6 +2372,12 @@ if __name__ == '__main__':
         camera_running = True
         mjpeg_capture_thread = threading.Thread(target=mjpeg_capture_loop, daemon=True)
         mjpeg_capture_thread.start()
+    elif use_hw_acceleration and settings.get('on_demand', True):
+        logger.info("On-demand mode: camera will start when a viewer connects")
+        clear_hls_dir()  # Segments left by the previous run would be served as a stale stream
+        if not probe_camera():
+            logger.error("No camera detected")
+            camera_last_start_failed = True
     elif use_hw_acceleration:
         logger.info("Starting H.264 hardware-accelerated camera...")
         # Start the combined rpicam | ffmpeg pipeline
@@ -2309,9 +2461,6 @@ def reconnect_mqtt():
             logger.error(f"MQTT reconnect failed: {e}")
             # Don't update timestamp on failure to retry sooner
 
-# In main - after load_settings()
-init_mqtt()
-
 # Add background thread for reconnection handling
 def mqtt_monitor():
     while True:
@@ -2368,7 +2517,9 @@ def publish_status():
         "uptime": format_uptime(uptime_secs),
         "resolution": f"{settings['width']}x{settings['height']}",
         "framerate": settings['framerate'],
-        "camera_ready": camera_running,
+        "camera_ready": camera_is_ready(),
+        "camera_state": get_camera_state(),
+        "on_demand": on_demand_active(),
         "ip": ip_address,
         "timestamp": int(time.time())
     }
@@ -2392,7 +2543,8 @@ def publish_metrics():
         "timestamp": int(time.time()),
         "uptime_seconds": int(get_uptime()),
         "free_heap": free_heap,
-        "camera_ready": 1 if camera_running else 0,
+        "camera_ready": 1 if camera_is_ready() else 0,
+        "streaming": 1 if camera_running else 0,
         "mqtt_connected": 1 if mqtt_connected else 0,
         "bandwidth_kbps": round(bandwidth_kbps, 2)
     }
@@ -2421,7 +2573,11 @@ def mqtt_publisher():
                 last_metrics_publish = current_time
         time.sleep(1)
 
+# Connect only now: on_mqtt_connect publishes an event, so the publish helpers must exist first
+init_mqtt()
+
 threading.Thread(target=mqtt_publisher, daemon=True).start()
+threading.Thread(target=idle_watchdog, daemon=True).start()
 
 @app.errorhandler(404)
 def not_found(error):
@@ -2431,4 +2587,5 @@ def not_found(error):
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
-app.run(host='0.0.0.0', port=5000, threaded=True)
+# PICAMCTL_PORT lets the tests run the app beside a live instance
+app.run(host='0.0.0.0', port=int(os.environ.get('PICAMCTL_PORT', 5000)), threaded=True)

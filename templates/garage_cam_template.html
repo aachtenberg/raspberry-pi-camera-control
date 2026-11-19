@@ -799,10 +799,33 @@
                         <span class="toggle-label">MJPEG Mode</span>
                         <div class="toggle-switch" id="mjpeg-toggle" onclick="toggleSwitch(this, 'use_mjpeg')"></div>
                     </div>
+                    <div class="toggle-item">
+                        <span class="toggle-label">On-Demand</span>
+                        <div class="toggle-switch" id="on-demand-toggle" onclick="toggleSwitch(this, 'on_demand')"></div>
+                    </div>
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>Bitrate</span>
+                    </div>
+                    <select id="bitrate" onchange="applyBitrate(this.value)">
+                        <option value="0" selected>Auto (by resolution)</option>
+                        <option value="1000000">1 Mbit/s</option>
+                        <option value="1500000">1.5 Mbit/s</option>
+                        <option value="2000000">2 Mbit/s</option>
+                        <option value="3000000">3 Mbit/s</option>
+                        <option value="4000000">4 Mbit/s</option>
+                        <option value="5000000">5 Mbit/s</option>
+                        <option value="6000000">6 Mbit/s</option>
+                        <option value="8000000">8 Mbit/s</option>
+                        <option value="10000000">10 Mbit/s</option>
+                    </select>
                 </div>
                 <div style="font-size: 11px; color: #888; margin-top: 10px; line-height: 1.5; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
                     <div style="margin-bottom: 5px;">💡 <strong>HLS</strong> (default): Low CPU, 3-6s latency</div>
                     <div>💡 <strong>MJPEG</strong>: Higher CPU, &lt;1s latency</div>
+                    <div style="margin-top: 5px;">💡 <strong>On-Demand</strong>: camera runs only while someone is watching; off = continuous</div>
+                    <div style="margin-top: 5px;">💡 <strong>Bitrate</strong>: Auto is 3 Mbit/s at 720p, 5 Mbit/s at 1080p</div>
                     <div style="margin-top: 8px; opacity: 0.8;">⚠️ MJPEG may cause performance issues on Pi Zero 2 W</div>
                 </div>
             </div>
@@ -961,6 +984,13 @@
             video.style.display = 'block';
             // Add timestamp to bust cache
             const hlsUrl = '/hls/stream.m3u8?t=' + new Date().getTime();
+
+            // In on-demand mode the camera starts when the page opens; say so while waiting
+            fetch('/system_info').then(r => r.json()).then(data => {
+                if (data.camera_state && data.camera_state !== 'streaming') {
+                    showNotification('Starting camera...', 'info');
+                }
+            }).catch(() => {});
             
             if (Hls.isSupported()) {
                 hls = new Hls({
@@ -970,8 +1000,8 @@
                     maxBufferLength: 20,
                     maxMaxBufferLength: 30,
                     // Latency tuning
-                    liveSyncDurationCount: 2, // Aim for ~4s latency (2 segments)
-                    liveMaxLatencyDurationCount: 5, // Jump to live if >10s behind
+                    liveSyncDurationCount: 2, // Play 2 segments (~2s) behind the live edge
+                    liveMaxLatencyDurationCount: 5, // Jump to live if >5 segments (~5s) behind
                     maxLiveSyncPlaybackRate: 1.2, // Speed up slightly to catch up
                     manifestLoadingTimeOut: 10000,
                     manifestLoadingMaxRetry: 10,
@@ -1297,6 +1327,9 @@
                 setTimeout(() => {
                     initVideoStream();
                 }, 4000);
+            } else if (setting === 'on_demand') {
+                applySetting(setting, isActive);
+                showNotification(isActive ? 'On-demand: camera stops when nobody is watching' : 'Continuous: camera always running', 'info');
             } else if (setting === 'mqtt_enabled') {
                 applySetting(setting, isActive);
                 showNotification(isActive ? 'MQTT enabled - reconnecting...' : 'MQTT disabled', 'info');
@@ -1305,6 +1338,20 @@
             } else if (setting === 'auto_wb') {
                 applyDropdown('awb', isActive ? 'auto' : 'daylight');
             }
+        }
+
+        function applyBitrate(value) {
+            fetch('/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ bitrate: parseInt(value) })
+            }).then(response => response.json()).then(data => {
+                showNotification('Bitrate updated - restarting stream', 'info');
+                // The camera restarts for a bitrate change; reload once it is back
+                setTimeout(reloadStream, 3000);
+            }).catch(error => {
+                showNotification('Failed to update bitrate', 'error');
+            });
         }
 
         function updateSlider(id, value) {
@@ -1816,6 +1863,24 @@
                     const mjpegToggle = document.getElementById('mjpeg-toggle');
                     if (mjpegToggle && settings.use_mjpeg) {
                         mjpegToggle.classList.add('active');
+                    }
+
+                    // Load on-demand toggle and bitrate
+                    const onDemandToggle = document.getElementById('on-demand-toggle');
+                    if (onDemandToggle && settings.on_demand !== false) {
+                        onDemandToggle.classList.add('active');
+                    }
+                    const bitrateSelect = document.getElementById('bitrate');
+                    if (bitrateSelect) {
+                        const currentBitrate = String(settings.bitrate || 0);
+                        if (![...bitrateSelect.options].some(option => option.value === currentBitrate)) {
+                            // A value set through the API that is not in the list: show it rather than "Auto"
+                            const custom = document.createElement('option');
+                            custom.value = currentBitrate;
+                            custom.textContent = 'Custom (' + Number((settings.bitrate / 1000000).toFixed(2)) + ' Mbit/s)';
+                            bitrateSelect.appendChild(custom);
+                        }
+                        bitrateSelect.value = currentBitrate;
                     }
 
                     // Load MQTT settings

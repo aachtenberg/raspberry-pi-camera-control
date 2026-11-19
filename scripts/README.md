@@ -32,10 +32,19 @@ export PI_HOST=pizero2
 ```
 
 **Actions:**
+- Checks that the Pi can resolve public DNS names and aborts before changing anything if it cannot
+- Applies host settings (each skipped when already in place):
+  - Wi-Fi power save off
+  - Journal capped at 100M
+  - Raspberry Pi Connect user services disabled
 - Copies Python script, templates, and config files
 - Installs systemd service
 - Restarts the service
 - Shows deployment status
+
+**Optional switches:**
+- `SKIP_DNS_CHECK=1` - deploy to a Pi that is deliberately offline
+- `KEEP_RPI_CONNECT=1` - leave Raspberry Pi Connect enabled
 
 ### manage_service.sh
 Local script for managing the picamctl systemd service on the Pi.
