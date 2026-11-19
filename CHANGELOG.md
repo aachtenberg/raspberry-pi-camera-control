@@ -3,6 +3,9 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+- Fix: at 12 fps the second segment after every camera start was 2 seconds long (ffmpeg skipped a cut on timestamp rounding), slowing the start. The segment target is now 0.9s so every keyframe starts a segment; the stream tests run at 12 fps to cover it.
+- CI: the Detect Secrets workflow compared files in a way that could never fail. It now scans every tracked file against `.secrets.baseline`.
+- Docs: README and Copilot instructions brought in line with the current pipeline (pipe instead of TCP, 1s segments, on-demand, bitrate, test workflow, supported resolutions and framerate range).
 - CI: stream pipeline tests against a fake camera (`tests/test_stream.py`), a lint workflow (shellcheck, ruff, template JavaScript), and UI tests for the on-demand toggle and bitrate dropdown.
 - Removed the unused `vlc_buffer_reader()` (it referenced undefined names) and fixed shellcheck warnings in the scripts.
 - Streaming: on-demand mode (default, switchable to continuous in Settings > Streaming). The camera starts when a viewer opens the page and stops after `idle_timeout` seconds (default 60) without stream requests.
