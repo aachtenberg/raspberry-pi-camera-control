@@ -18,7 +18,71 @@ echo "🚀 Deploying picamctl to Pi..."
 
 # Get the project root directory (parent of scripts/)
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$PROJECT_ROOT"
+cd "$PROJECT_ROOT" || exit 1
+
+# Preflight: the Pi must be able to resolve public names. Without this the apt
+# step below fails with only a warning and the deploy still reports success.
+# Set SKIP_DNS_CHECK=1 for a Pi that is deliberately offline.
+if [ "${SKIP_DNS_CHECK:-0}" != "1" ]; then
+    echo "🔎 Checking DNS on the Pi..."
+    ssh ${PI_USER}@${PI_HOST} 'timeout 10 getent ahostsv4 deb.debian.org >/dev/null 2>&1'
+    DNS_RC=$?
+    if [ $DNS_RC -eq 255 ]; then
+        echo "❌ Cannot reach ${PI_USER}@${PI_HOST} over SSH - aborting."
+        exit 1
+    elif [ $DNS_RC -ne 0 ]; then
+        echo "❌ ${PI_HOST} cannot resolve deb.debian.org - aborting before anything is changed."
+        ssh ${PI_USER}@${PI_HOST} 'bash -s' << 'EOF'
+            BACKUP=/etc/resolv.pre-tailscale-backup.conf
+            if grep -qs '^nameserver 100\.100\.100\.100' /etc/resolv.conf && [ -f "$BACKUP" ] && ! grep -qs '^nameserver' "$BACKUP"; then
+                # Tailscale saved an empty resolv.conf (written mid Wi-Fi reconnect) as its upstream list
+                echo "   Cause: Tailscale owns /etc/resolv.conf but its saved upstream list ($BACKUP) is empty."
+                echo "   Fix:   sudo cp /run/NetworkManager/resolv.conf $BACKUP && sudo systemctl restart tailscaled"
+            else
+                echo "   /etc/resolv.conf on the Pi:"
+                grep -v '^#' /etc/resolv.conf | sed 's/^/     /'
+            fi
+EOF
+        echo "   Set SKIP_DNS_CHECK=1 to deploy anyway (dependency installs will fail)."
+        exit 1
+    fi
+fi
+
+# Host setup: OS settings the camera needs for a steady stream. Idempotent -
+# each item is skipped when already in place.
+echo "🛠️  Applying host settings..."
+ssh ${PI_USER}@${PI_HOST} "KEEP_RPI_CONNECT='${KEEP_RPI_CONNECT:-0}' bash -s" << 'EOF'
+    # Wi-Fi power save off: it adds latency spikes to the stream
+    if [ -d /etc/NetworkManager/conf.d ] && ! grep -rqsE '^\s*wifi\.powersave\s*=\s*2' /etc/NetworkManager/conf.d/; then
+        printf '[connection]\nwifi.powersave = 2\n' | sudo tee /etc/NetworkManager/conf.d/picamctl-wifi-powersave.conf >/dev/null
+        sudo nmcli general reload conf
+        echo "   Wi-Fi power save: disabled in NetworkManager config"
+    fi
+    for IFACE in $(ls /sys/class/net | grep '^wl'); do
+        sudo iw dev "$IFACE" set power_save off 2>/dev/null
+        echo "   $IFACE: $(sudo iw dev "$IFACE" get power_save 2>/dev/null || echo 'power save state unknown')"
+    done
+
+    # Cap the journal so a misbehaving service cannot fill the SD card
+    if ! grep -rqsE '^\s*SystemMaxUse=' /etc/systemd/journald.conf /etc/systemd/journald.conf.d/; then
+        sudo mkdir -p /etc/systemd/journald.conf.d
+        printf '[Journal]\nSystemMaxUse=100M\n' | sudo tee /etc/systemd/journald.conf.d/picamctl-size.conf >/dev/null
+        sudo systemctl restart systemd-journald
+        echo "   Journal: capped at 100M"
+    fi
+
+    # Raspberry Pi Connect: on a headless Pi its wayvnc unit restart-loops every
+    # 5 seconds, burning CPU and SD writes. Set KEEP_RPI_CONNECT=1 to leave it on.
+    if [ "$KEEP_RPI_CONNECT" != "1" ]; then
+        UNITS=$(systemctl --user list-unit-files --no-legend 'rpi-connect*' 2>/dev/null | awk '$2=="enabled"{print $1}')
+        if [ -n "$UNITS" ]; then
+            systemctl --user disable --now $UNITS >/dev/null 2>&1
+            systemctl --user reset-failed 'rpi-connect*' 2>/dev/null
+            echo "   Raspberry Pi Connect: disabled ($(echo $UNITS))"
+        fi
+    fi
+EOF
+# --- end host setup ---
 
 # Create remote directory if it doesn't exist
 ssh ${PI_USER}@${PI_HOST} "mkdir -p ${REMOTE_DIR}"
@@ -42,6 +106,7 @@ ssh ${PI_USER}@${PI_HOST} "set -e; echo '   Running apt-get update...'; sudo apt
 
 # Install Python dependencies (for any extras not in apt)
 echo "📦 Installing Python dependencies..."
+# shellcheck disable=SC2087  # REMOTE_DIR is meant to expand locally
 ssh ${PI_USER}@${PI_HOST} << EOF
     cd ${REMOTE_DIR}
     pip3 install -r requirements.txt --break-system-packages
@@ -58,6 +123,7 @@ echo "Pi Model: $PI_MODEL"
 if echo "$PI_MODEL" | grep -q "Zero 2 W"; then
     echo "ℹ️  Detected Raspberry Pi Zero 2 W - Applying optimizations..."
     # Set lower default resolution/framerate if settings file doesn't exist
+    # shellcheck disable=SC2087  # REMOTE_DIR is meant to expand locally
     ssh ${PI_USER}@${PI_HOST} << EOF
         SETTINGS_FILE="${REMOTE_DIR}/picamctl_settings.json"
         if [ ! -f "\$SETTINGS_FILE" ]; then
