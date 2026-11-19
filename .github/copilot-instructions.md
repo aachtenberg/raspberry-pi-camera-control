@@ -109,7 +109,7 @@ def reconnect_mqtt():
 1. Make changes on a branch
 2. Run the stream tests (no Pi needed, uses the fake camera in `tests/fakes/`): `pytest -v tests/test_stream.py`
 3. Run the lint checks listed in the README Testing section
-4. Open a pull request; Stream Tests, UI Tests, Lint and Detect Secrets must pass
+4. Open a pull request. Lint and Detect Secrets run on every PR; Stream Tests and UI Tests run when the app, templates or tests change. All that run must pass. The agent review comments on the PR: reply there saying how each finding was addressed
 5. Deploy with script: `PI_USER=aachten PI_HOST=pizero1 ./scripts/deploy_to_pi.sh`
 6. Monitor logs: `ssh pizero1 "journalctl -u picamctl -f"`
 7. Verify functionality via web UI: `http://pizero1:5000`

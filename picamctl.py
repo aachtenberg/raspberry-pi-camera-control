@@ -1367,66 +1367,6 @@ def _start_h264_camera():
         logger.error(f"Failed to start H.264 camera: {e}")
         return False
 
-def run_ffmpeg_hls_converter():
-    """Convert H.264 TCP stream to HLS segments using ffmpeg - ffmpeg acts as TCP server"""
-    global ffmpeg_stderr
-    ffmpeg_log = os.path.join(os.path.dirname(__file__), 'ffmpeg.log')
-    
-    while True:
-        try:
-            # Start immediately, no wait for camera - ffmpeg starts TCP server first
-            
-            playlist_path = os.path.join(HLS_DIR, 'stream.m3u8')
-            segment_pattern = os.path.join(HLS_DIR, 'segment_%03d.ts')
-            
-            cmd = [
-                'ffmpeg',
-                '-hide_banner',
-                '-loglevel', 'warning',
-                '-listen', '1',       # Act as TCP server
-                '-i', 'tcp://0.0.0.0:8888?listen_timeout=60000',  # Listen with timeout
-                '-c:v', 'copy',  # Copy video without re-encoding
-                '-f', 'hls',
-                '-hls_time', '1',  # 1 second segments for lower latency
-                '-hls_list_size', '5',  # Keep last 5 segments (reduced from 10 for lower latency)
-                '-hls_flags', 'delete_segments+append_list',
-                '-hls_segment_filename', segment_pattern,
-                playlist_path
-            ]
-            
-            logger.info(f"Starting ffmpeg HLS converter as TCP server: {' '.join(cmd)}")
-            
-            # Close previous log file if it exists  
-            if ffmpeg_stderr and not ffmpeg_stderr.closed:
-                try:
-                    ffmpeg_stderr.close()
-                except:
-                    pass
-            
-            # Open log file for stderr - must keep open for process lifetime
-            ffmpeg_stderr = open(ffmpeg_log, 'wb', buffering=0)  # Unbuffered binary mode
-            
-            # Run ffmpeg - CRITICAL: use file for stderr to prevent zombie process
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=ffmpeg_stderr,
-                start_new_session=True
-            )
-            
-            # Monitor process
-            while True:
-                if process.poll() is not None:
-                    logger.warning("ffmpeg HLS converter exited, will restart in 0.5 seconds...")
-                    break
-                time.sleep(0.5)  # Check frequently to restart fast
-                
-        except Exception as e:
-            logger.error(f"ffmpeg HLS converter error: {e}, restarting in 1 second...")
-        
-        # Wait before restarting - reduced from 3s to 1s for faster recovery
-        time.sleep(1)
-
 def start_stream():
     """This function is now just for updating settings"""
     logger.info(f"Settings updated: {settings['width']}x{settings['height']} @ {settings['framerate']}fps")

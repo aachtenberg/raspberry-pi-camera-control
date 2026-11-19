@@ -241,13 +241,16 @@ Fixed! The new implementation uses:
 
 ## Testing
 
-Besides secret scanning, three GitHub Actions workflows run on pull requests and pushes to `master`:
+GitHub Actions workflows on pull requests and pushes to `master`:
 
-| Workflow | What it checks | Needs a camera? |
-|---|---|---|
-| **Stream Tests** | Segment length, bitrate, on-demand start and idle stop, continuous mode, snapshot, VLC mode | No - uses a fake camera |
-| **UI Tests** | Page layout, controls, settings panel, API endpoints | No |
-| **Lint** | Shell scripts (shellcheck), Python syntax and undefined names (ruff), JavaScript inside the templates | No |
+| Workflow | What it checks | Runs when | Needs a camera? |
+|---|---|---|---|
+| **Stream Tests** | Segment length, bitrate, on-demand start and idle stop, continuous mode, snapshot, VLC mode | The app, templates, tests or requirements change | No - uses a fake camera |
+| **UI Tests** | Page layout, controls, settings panel, API endpoints | The app, templates or tests change | No |
+| **Lint** | Shell scripts (shellcheck), Python syntax and undefined names (ruff), JavaScript inside the templates | Always | No |
+| **Detect Secrets** | Potential secrets not in `.secrets.baseline` | Always | No |
+
+Stream Tests and UI Tests are path-filtered, so a change to only docs or scripts runs just Lint and Detect Secrets. A fifth workflow, **agent-review**, posts an automated code review as a comment when a pull request is opened or someone comments `/review`; it does not block merging.
 
 ### Stream Pipeline Tests
 
