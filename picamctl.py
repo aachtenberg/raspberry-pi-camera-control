@@ -1301,7 +1301,10 @@ def _start_h264_camera():
 
     ffmpeg_cmd.extend([
         '-f', 'hls',
-        '-hls_time', '1',  # 1 second segments for lower latency
+        # Cut at every keyframe (one per second). The target is just under 1s because
+        # ffmpeg compares rounded timestamps: at 12 fps a keyframe can land a hair
+        # short of a 1s target, which skips a cut and makes a 2s segment.
+        '-hls_time', '0.9',
         '-hls_list_size', '5',  # Keep last 5 segments (reduced from 10)
         '-hls_flags', 'delete_segments+append_list',
         # Number segments from the clock so names never repeat across camera restarts
