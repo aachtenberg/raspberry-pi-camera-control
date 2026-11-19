@@ -183,6 +183,10 @@ Adjust via web interface:
 - **White Balance**: Auto, Daylight, Cloudy, etc.
 - **Flip**: Horizontal/Vertical
 - **Rotation**: 0°, 90°, 180°, 270°
+- **On-Demand** (Streaming section, on by default): the camera starts when someone opens the web page and stops 60 seconds after the last stream request, so nothing is encoded or written to the SD card while nobody is watching. Expect a few seconds' wait for the first picture. Turn it off for continuous streaming.
+- **Bitrate** (Streaming section): Auto uses 3 Mbit/s at 720p and 5 Mbit/s at 1080p; pick a fixed value to trade picture detail against network load.
+
+In on-demand standby the MQTT status reports `camera_ready: true` with `camera_state: "standby"`; the metrics topic carries `streaming` (0/1).
 
 ## Performance on Pi Zero 2 W
 
@@ -220,9 +224,36 @@ Fixed! The new implementation uses:
 ### Stream lag
 - Lower resolution (640x480)
 - Reduce framerate (10 fps)
-- Adjust HLS segment duration in `run_ffmpeg_hls_converter()`
+- Segment length follows the keyframe interval set in `_start_h264_camera()` (one per second)
 
 ## Testing
+
+Three GitHub Actions workflows run on pull requests and pushes to `master`:
+
+| Workflow | What it checks | Needs a camera? |
+|---|---|---|
+| **Stream Tests** | Segment length, bitrate, on-demand start and idle stop, continuous mode, snapshot, VLC mode | No - uses a fake camera |
+| **UI Tests** | Page layout, controls, settings panel, API endpoints | No |
+| **Lint** | Shell scripts (shellcheck), Python syntax and undefined names (ruff), JavaScript inside the templates | No |
+
+### Stream Pipeline Tests
+
+`tests/test_stream.py` runs the real app and the real ffmpeg HLS stage against a stand-in for `rpicam-vid` (`tests/fakes/`) that generates an H.264 test pattern. Needs `ffmpeg` with libx264 and `pytest`:
+
+```bash
+pip install -r requirements.txt pytest
+pytest -v tests/test_stream.py
+```
+
+The run takes a little over a minute. While it runs, the app under test stops camera processes by name (`pkill`), so do not run it on a Pi that is streaming.
+
+### Lint
+
+```bash
+shellcheck --severity=warning scripts/*.sh tests/run_tests.sh
+ruff check --select E9,F63,F7,F82 picamctl.py scripts tests
+node tests/check_template_js.js templates/*.html
+```
 
 ### UI End-to-End Tests
 
