@@ -1872,8 +1872,15 @@
                     }
                     const bitrateSelect = document.getElementById('bitrate');
                     if (bitrateSelect) {
-                        bitrateSelect.value = String(settings.bitrate || 0);
-                        if (bitrateSelect.selectedIndex < 0) bitrateSelect.value = '0';
+                        const currentBitrate = String(settings.bitrate || 0);
+                        if (![...bitrateSelect.options].some(option => option.value === currentBitrate)) {
+                            // A value set through the API that is not in the list: show it rather than "Auto"
+                            const custom = document.createElement('option');
+                            custom.value = currentBitrate;
+                            custom.textContent = 'Custom (' + Number((settings.bitrate / 1000000).toFixed(2)) + ' Mbit/s)';
+                            bitrateSelect.appendChild(custom);
+                        }
+                        bitrateSelect.value = currentBitrate;
                     }
 
                     // Load MQTT settings

@@ -238,6 +238,17 @@ def test_idle_camera_restarts_on_the_next_request(app):
     assert state() == 'streaming'
 
 
+def test_snapshot_while_watching_resumes_the_stream(app):
+    playlist()  # a viewer is present
+    streams_before = len(app.camera_calls())
+    status, body = http('/snapshot', {}, timeout=40)
+    assert status == 200 and json.loads(body)['success']
+
+    wait_for(lambda: playlist()[0] == 200, 25, 'the stream to resume after the snapshot')
+    assert state() == 'streaming'
+    assert len(app.camera_calls()) == streams_before + 1
+
+
 def test_continuous_mode_keeps_running_without_viewers(app):
     assert http('/apply', {'on_demand': False})[0] == 200
     wait_for(lambda: state() == 'streaming', 15, 'continuous mode to be streaming')
@@ -248,15 +259,28 @@ def test_continuous_mode_keeps_running_without_viewers(app):
     wait_for(lambda: state() == 'standby', 15, 'on-demand mode to stop the idle camera', interval=1)
 
 
-def test_snapshot_from_standby_returns_to_standby(app):
+def test_snapshot_from_standby_leaves_the_camera_stopped(app):
     assert state() == 'standby'
+    streams_before = len(app.camera_calls())
     status, body = http('/snapshot', {}, timeout=40)
     result = json.loads(body)
     assert status == 200 and result['success'], result
 
     status, image = http(result['url'])
     assert status == 200 and image[:2] == b'\xff\xd8', 'snapshot should be a JPEG'
-    wait_for(lambda: state() == 'standby', 30, 'the camera to return to standby', interval=1)
+
+    time.sleep(4)  # long enough for a restart to have begun
+    assert state() == 'standby'
+    assert len(app.camera_calls()) == streams_before, 'no stream should start when nobody is watching'
+
+
+def test_settings_change_in_standby_does_not_start_the_camera(app):
+    streams_before = len(app.camera_calls())
+    assert http('/apply', {'framerate': FRAMERATE})[0] == 200  # a restart-required setting
+
+    time.sleep(6)  # the restart path waits 2 seconds before starting
+    assert state() == 'standby'
+    assert len(app.camera_calls()) == streams_before, 'no stream should start when nobody is watching'
 
 
 def test_vlc_mode_and_back_to_the_web_stream(app):

@@ -1097,6 +1097,20 @@ def ensure_camera_running():
     logger.info("Viewer connected - starting camera")
     threading.Thread(target=start_h264_camera, daemon=True).start()
 
+def viewer_present():
+    """True when someone asked for the stream within the idle timeout"""
+    return time.time() - last_viewer_time < max(15, int(settings.get('idle_timeout', 60)))
+
+def resume_camera():
+    """Restart the stream after a snapshot or settings change, unless on-demand mode has nobody to serve"""
+    global camera_running
+    if on_demand_active() and not viewer_present():
+        logger.info("On-demand mode with no viewer - leaving the camera stopped")
+        with camera_process_lock:
+            camera_running = False
+        return
+    threading.Thread(target=start_h264_camera, daemon=True).start()
+
 def idle_watchdog():
     """On-demand mode: stop the HLS pipeline once nobody has asked for the stream for a while"""
     global camera_running
@@ -1106,7 +1120,7 @@ def idle_watchdog():
             if not (on_demand_active() and camera_running) or snapshot_in_progress:
                 continue
             idle = time.time() - last_viewer_time
-            if idle >= max(15, int(settings.get('idle_timeout', 60))):
+            if not viewer_present():
                 logger.info(f"No viewers for {int(idle)}s - stopping camera (on-demand mode)")
                 stop_camera_process()
                 with camera_process_lock:
@@ -1164,13 +1178,17 @@ def stop_camera_process():
 
 def start_h264_camera():
     """Start the HLS camera pipeline; a start that is already in progress is not repeated"""
-    global camera_last_start_failed
+    global camera_last_start_failed, camera_running
     if not camera_start_lock.acquire(blocking=False):
         logger.info("Camera start already in progress")
         return False
     try:
         started = _start_h264_camera()
         camera_last_start_failed = not started
+        if not started:
+            # Not running: lets the next viewer request try again
+            with camera_process_lock:
+                camera_running = False
         return started
     finally:
         camera_start_lock.release()
@@ -1419,7 +1437,7 @@ def start_stream():
         # ffmpeg will auto-restart when old connection closes
         logger.info("Waiting for ffmpeg to be ready for new connection...")
         time.sleep(2)  # Give ffmpeg time to restart and listen
-        threading.Thread(target=start_h264_camera, daemon=True).start()
+        resume_camera()
 
 
 # ============================================================================
@@ -2135,7 +2153,7 @@ def _take_snapshot():
         if use_hw_acceleration:
             logger.info("Restarting video stream...")
             time.sleep(0.5)
-            threading.Thread(target=start_h264_camera, daemon=True).start()
+            resume_camera()
 
         if result.returncode == 0 and os.path.exists(filepath):
             logger.info(f"Snapshot saved: {filepath}")
@@ -2162,13 +2180,13 @@ def _take_snapshot():
         logger.error("Snapshot timed out")
         if use_hw_acceleration:
             time.sleep(0.5)
-            threading.Thread(target=start_h264_camera, daemon=True).start()
+            resume_camera()
         return jsonify({'success': False, 'error': 'Camera timeout'}), 500
     except Exception as e:
         logger.error(f"Snapshot error: {e}")
         if use_hw_acceleration:
             time.sleep(0.5)
-            threading.Thread(target=start_h264_camera, daemon=True).start()
+            resume_camera()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/snapshots/<filename>')
@@ -2336,7 +2354,7 @@ def restart_service():
         
         # Restart the stream
         if use_hw_acceleration:
-            threading.Thread(target=start_h264_camera, daemon=True).start()
+            resume_camera()
         
         logger.info("Camera service restart initiated")
         return jsonify({'status': 'ok', 'message': 'Camera service restarting'})

@@ -419,6 +419,19 @@ class TestStreamingSettings:
         page.wait_for_timeout(1000)
         assert str(self._settings(page, base_url).get("bitrate", 0) or 0) == before
 
+    def test_custom_bitrate_is_shown(self, page: Page, base_url: str):
+        """A bitrate set through the API that is not in the list is shown, not reported as Auto"""
+        origin = base_url.rsplit('/web', 1)[0]
+        before = self._settings(page, base_url).get("bitrate", 0) or 0
+        page.request.post(origin + '/apply', data={"bitrate": 1234000})
+        try:
+            self._open_settings(page, base_url)
+            bitrate = page.locator("#bitrate")
+            assert bitrate.input_value() == "1234000"
+            expect(bitrate.locator("option:checked")).to_contain_text("1.23 Mbit/s")
+        finally:
+            page.request.post(origin + '/apply', data={"bitrate": before})
+
 
 @pytest.mark.slow
 class TestExtendedFunctionality:
