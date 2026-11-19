@@ -29,7 +29,7 @@ FAKES = Path(__file__).resolve().parent / 'fakes'
 PORT = int(os.environ.get('STREAM_TEST_PORT', '5057'))
 BASE = f'http://127.0.0.1:{PORT}'
 
-FRAMERATE = 10
+FRAMERATE = 12  # not 10: at 12 fps timestamp rounding once produced a 2s segment after every start
 IDLE_TIMEOUT = 15  # seconds; the app's minimum
 
 if shutil.which('ffmpeg') is None:
@@ -195,6 +195,7 @@ def test_encoder_is_asked_for_one_keyframe_per_second_and_a_bitrate(app):
 
 
 def test_segments_are_one_second_long(app):
+    # The playlist still holds the first segments after the start, where a bad cut would show
     text = wait_for(lambda: playlist_with(4), 20, 'four segments')
     durations = segment_durations(text)
     assert all(0.9 <= d <= 1.1 for d in durations), f'segment durations: {durations}'
